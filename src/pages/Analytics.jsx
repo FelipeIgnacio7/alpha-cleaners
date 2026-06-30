@@ -28,6 +28,7 @@ const PREMIUM_BRANDS = new Set([
 
 const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const MONTHS_ES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 function fmtCLP(n) {
   return '$' + Math.round(n).toLocaleString('es-CL')
@@ -341,7 +342,6 @@ export default function Analytics() {
     const retainedMonth = curPatKeys.filter(p => prevPatSet.has(p)).length
     const newMonth = curPatKeys.filter(p => !prevPatSet.has(p)).length
 
-    const MONTHS_ES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
     const monthLabel = MONTHS_ES_FULL[latestM - 1]
 
     const periodComp = {
