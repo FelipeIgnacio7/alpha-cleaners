@@ -248,168 +248,100 @@ export default function Analytics() {
       .map(([name, v]) => ({ name, ticket: v.ingresos / v.count, count: v.count }))
       .sort((a, b) => b.ticket - a.ticket)[0]
 
-    // ── Month-over-month YoY: last closed month vs same month prior year ──
-    // Always compare the most recent full month vs same month last year
-    // Current data max date determines "last full month"
-    const allDates = filtered.map(t => t.fecha).sort()
-    const latestDate = allDates[allDates.length - 1] || ''
-    const [latestY, latestM] = latestDate.split('-').map(Number)
-    // Last full month = latestM of latestY (assume current month is "in progress" if today > last date)
-    const curMonthKey = `${latestY}-${String(latestM).padStart(2, '0')}`
-    const prevYearMonthKey = `${latestY - 1}-${String(latestM).padStart(2, '0')}`
-    const curMonthStart = `${curMonthKey}-01`
-    const curMonthEnd = `${curMonthKey}-31`
-    const prevYearStart = `${prevYearMonthKey}-01`
-    const prevYearEnd = `${prevYearMonthKey}-31`
-
+    // ── Shared helpers for MoM comparison ──
     function monthMetrics(rows) {
       const rev = rows.reduce((s, t) => s + Number(t.monto), 0)
       const count = rows.length
       const svcMap = {}
-      const brandMap = {}
-      const dowMap = Array(7).fill(null).map(() => ({ count: 0, ingresos: 0 }))
-      const dailyMap = {}
+      const dowMap = Array(7).fill(null).map(() => ({ count: 0 }))
       rows.forEach(t => {
         const s = (t.tipo_servicio || 'Sin datos').trim()
         if (!svcMap[s]) svcMap[s] = { count: 0, ingresos: 0 }
         svcMap[s].count++; svcMap[s].ingresos += Number(t.monto)
-        if (t.marca) brandMap[t.marca] = (brandMap[t.marca] || 0) + 1
         const [y, mo, d] = t.fecha.split('-')
-        const dow = new Date(+y, +mo - 1, +d).getDay()
-        dowMap[dow].count++; dowMap[dow].ingresos += Number(t.monto)
-        dailyMap[t.fecha] = (dailyMap[t.fecha] || 0) + 1
+        dowMap[new Date(+y, +mo - 1, +d).getDay()].count++
       })
       const patMap = {}
       rows.filter(t => t.patente).forEach(t => { patMap[t.patente] = (patMap[t.patente] || 0) + 1 })
-      const avgPerDay = count > 0 ? count / Math.max(Object.keys(dailyMap).length, 1) : 0
-      return { rev, count, ticket: count > 0 ? rev / count : 0, svcMap, brandMap, dowMap, patMap, avgPerDay, dailyMap }
+      return { rev, count, ticket: count > 0 ? rev / count : 0, svcMap, dowMap, patMap }
     }
 
-    // Split by local to allow fair Fontova-only comparison (Curicó didn't exist in Jun 2025)
-    const curAll   = filtered.filter(t => t.fecha >= curMonthStart && t.fecha <= curMonthEnd)
-    const prevAll  = filtered.filter(t => t.fecha >= prevYearStart && t.fecha <= prevYearEnd)
-    const curL1    = curAll.filter(t => t.local_id === 1)
-    const prevL1   = prevAll.filter(t => t.local_id === 1)
-    const curL2    = curAll.filter(t => t.local_id === 2)
-
-    const mmCurAll  = monthMetrics(curAll)
-    const mmPrevAll = monthMetrics(prevAll)
-    const mmCurL1   = monthMetrics(curL1)
-    const mmPrevL1  = monthMetrics(prevL1)
-
-    // Service comparison (Fontova only for fair YoY)
-    const allSvcNames = new Set([...Object.keys(mmCurL1.svcMap), ...Object.keys(mmPrevL1.svcMap)])
-    const svcComp = [...allSvcNames]
-      .map(name => {
-        const c = mmCurL1.svcMap[name] || { count: 0, ingresos: 0 }
-        const p = mmPrevL1.svcMap[name] || { count: 0, ingresos: 0 }
-        return {
-          name,
-          curCount: c.count, curRev: c.ingresos,
-          prevCount: p.count, prevRev: p.ingresos,
-          revDelta: p.ingresos > 0 ? ((c.ingresos - p.ingresos) / p.ingresos) * 100 : null,
-          cntDelta: p.count > 0 ? ((c.count - p.count) / p.count) * 100 : null,
-        }
+    function buildLocalMoM(localRows) {
+      const byMonth = {}
+      localRows.forEach(t => {
+        const k = t.fecha.slice(0, 7)
+        if (!byMonth[k]) byMonth[k] = []
+        byMonth[k].push(t)
       })
-      .filter(s => s.curCount >= 3 || s.prevCount >= 3)
-      .sort((a, b) => b.curRev - a.curRev)
-      .slice(0, 10)
+      const months = Object.keys(byMonth).sort()
+      if (months.length < 2) return null
+      const mCur  = months[months.length - 1]
+      const mPrev = months[months.length - 2]
+      const dCur  = monthMetrics(byMonth[mCur])
+      const dPrev = monthMetrics(byMonth[mPrev])
 
-    // "What was done in prev month but NOT (or less) in current" — services that dropped
-    const missedOpps = svcComp
-      .filter(s => s.prevCount >= 5 && (s.cntDelta !== null && s.cntDelta < -10))
-      .sort((a, b) => a.cntDelta - b.cntDelta)
-      .slice(0, 4)
+      // Service comparison
+      const allS = new Set([...Object.keys(dCur.svcMap), ...Object.keys(dPrev.svcMap)])
+      const svcComp = [...allS].map(name => {
+        const c = dCur.svcMap[name]  || { count: 0, ingresos: 0 }
+        const p = dPrev.svcMap[name] || { count: 0, ingresos: 0 }
+        return { name, curCount: c.count, curRev: c.ingresos, prevCount: p.count, prevRev: p.ingresos,
+          delta: p.count > 0 ? ((c.count - p.count) / p.count) * 100 : null }
+      }).filter(s => s.curCount >= 2 || s.prevCount >= 2).sort((a, b) => b.curRev - a.curRev).slice(0, 10)
 
-    // Day-of-week normalized (per occurrence in month)
-    function dowOccurrences(year, month) {
-      const occ = Array(7).fill(0)
-      const days = new Date(year, month, 0).getDate()
-      for (let d = 1; d <= days; d++) occ[new Date(year, month - 1, d).getDay()]++
-      return occ
-    }
-    const occCur  = dowOccurrences(latestY, latestM)
-    const occPrev = dowOccurrences(latestY - 1, latestM)
-    const dowComp = DAYS_ES.map((day, i) => {
-      const curAvg  = occCur[i]  > 0 ? mmCurL1.dowMap[i].count  / occCur[i]  : 0
-      const prevAvg = occPrev[i] > 0 ? mmPrevL1.dowMap[i].count / occPrev[i] : 0
-      return { day, curAvg, prevAvg, delta: prevAvg > 0 ? ((curAvg - prevAvg) / prevAvg) * 100 : null }
-    })
+      const missedOpps = svcComp.filter(s => s.delta !== null && s.delta < -10 && s.prevCount >= 4)
+        .sort((a, b) => a.delta - b.delta).slice(0, 3)
+      const rising = svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 4)
+        .sort((a, b) => b.delta - a.delta).slice(0, 2)
 
-    // Retention for this month
-    const prevPatSet = new Set(Object.keys(mmPrevAll.patMap))
-    const curPatKeys = Object.keys(mmCurAll.patMap)
-    const retainedMonth = curPatKeys.filter(p => prevPatSet.has(p)).length
-    const newMonth = curPatKeys.filter(p => !prevPatSet.has(p)).length
-
-    const monthLabel = MONTHS_ES_FULL[latestM - 1]
-
-    const periodComp = {
-      monthLabel, curMonthKey, prevYearMonthKey,
-      mmCurAll, mmPrevAll, mmCurL1, mmPrevL1, mmCurL2: monthMetrics(curL2),
-      l1Growth: mmPrevL1.rev > 0 ? ((mmCurL1.rev - mmPrevL1.rev) / mmPrevL1.rev) * 100 : null,
-      l1CntGrowth: mmPrevL1.count > 0 ? ((mmCurL1.count - mmPrevL1.count) / mmPrevL1.count) * 100 : null,
-      l1TicketGrowth: mmPrevL1.ticket > 0 ? ((mmCurL1.ticket - mmPrevL1.ticket) / mmPrevL1.ticket) * 100 : null,
-      svcComp, missedOpps, dowComp,
-      retainedMonth, newMonth,
-      hasCurico: curL2.length > 0,
-    }
-
-    // ── Curicó: last month vs previous month (MoM) ──
-    const curicoRows = filtered.filter(t => t.local_id === 2)
-    const curicoByMonth = {}
-    curicoRows.forEach(t => {
-      const k = t.fecha.slice(0, 7)
-      if (!curicoByMonth[k]) curicoByMonth[k] = { count: 0, rev: 0, svcMap: {}, dowMap: Array(7).fill(null).map(() => ({ count: 0 })) }
-      curicoByMonth[k].count++
-      curicoByMonth[k].rev += Number(t.monto)
-      const s = (t.tipo_servicio || 'Sin datos').trim()
-      if (!curicoByMonth[k].svcMap[s]) curicoByMonth[k].svcMap[s] = { count: 0, ingresos: 0 }
-      curicoByMonth[k].svcMap[s].count++; curicoByMonth[k].svcMap[s].ingresos += Number(t.monto)
-      const [y, mo, d] = t.fecha.split('-')
-      const dow = new Date(+y, +mo - 1, +d).getDay()
-      curicoByMonth[k].dowMap[dow].count++
-    })
-    const curicoMonths = Object.keys(curicoByMonth).sort()
-    let curicoComp = null
-    if (curicoMonths.length >= 2) {
-      const mCur = curicoMonths[curicoMonths.length - 1]
-      const mPrev = curicoMonths[curicoMonths.length - 2]
-      const dCur = curicoByMonth[mCur]
-      const dPrev = curicoByMonth[mPrev]
-      const curicoSvcComp = (() => {
-        const allS = new Set([...Object.keys(dCur.svcMap), ...Object.keys(dPrev.svcMap)])
-        return [...allS].map(name => {
-          const c = dCur.svcMap[name] || { count: 0, ingresos: 0 }
-          const p = dPrev.svcMap[name] || { count: 0, ingresos: 0 }
-          return { name, curCount: c.count, curRev: c.ingresos, prevCount: p.count, prevRev: p.ingresos,
-            delta: p.count > 0 ? ((c.count - p.count) / p.count) * 100 : null }
-        }).filter(s => s.curCount >= 2 || s.prevCount >= 2).sort((a, b) => b.curRev - a.curRev).slice(0, 8)
-      })()
-      const curicoDowComp = DAYS_ES.map((day, i) => {
-        const [cy, cm] = mCur.split('-').map(Number)
-        const [py, pm] = mPrev.split('-').map(Number)
-        const occC = Array(7).fill(0); const occP = Array(7).fill(0)
-        const daysC = new Date(cy, cm, 0).getDate(); const daysP = new Date(py, pm, 0).getDate()
-        for (let d = 1; d <= daysC; d++) occC[new Date(cy, cm - 1, d).getDay()]++
-        for (let d = 1; d <= daysP; d++) occP[new Date(py, pm - 1, d).getDay()]++
-        const curAvg = occC[i] > 0 ? dCur.dowMap[i].count / occC[i] : 0
+      // Day-of-week normalized
+      function dowOcc(yk) {
+        const [y, m] = yk.split('-').map(Number)
+        const occ = Array(7).fill(0)
+        const days = new Date(y, m, 0).getDate()
+        for (let d = 1; d <= days; d++) occ[new Date(y, m - 1, d).getDay()]++
+        return occ
+      }
+      const occC = dowOcc(mCur); const occP = dowOcc(mPrev)
+      const dowComp = DAYS_ES.map((day, i) => {
+        const curAvg  = occC[i] > 0 ? dCur.dowMap[i].count  / occC[i] : 0
         const prevAvg = occP[i] > 0 ? dPrev.dowMap[i].count / occP[i] : 0
         return { day, curAvg, prevAvg, delta: prevAvg > 0 ? ((curAvg - prevAvg) / prevAvg) * 100 : null }
       })
-      curicoComp = {
+
+      // Retention
+      const prevPats = new Set(Object.keys(dPrev.patMap))
+      const curPatKeys = Object.keys(dCur.patMap)
+      const retained = curPatKeys.filter(p => prevPats.has(p)).length
+      const newPat   = curPatKeys.filter(p => !prevPats.has(p)).length
+      const retPct   = Object.keys(dPrev.patMap).length > 0
+        ? Math.round((retained / Object.keys(dPrev.patMap).length) * 100) : 0
+
+      const trend = months.map(k => ({
+        label: MONTHS_ES_FULL[parseInt(k.slice(5)) - 1].slice(0, 3) + ' ' + k.slice(2, 4),
+        count: byMonth[k].length,
+        rev: byMonth[k].reduce((s, t) => s + Number(t.monto), 0),
+      }))
+
+      return {
         mCur, mPrev,
-        labelCur: MONTHS_ES_FULL[parseInt(mCur.slice(5)) - 1] + ' ' + mCur.slice(0, 4),
+        labelCur:  MONTHS_ES_FULL[parseInt(mCur.slice(5))  - 1] + ' ' + mCur.slice(0, 4),
         labelPrev: MONTHS_ES_FULL[parseInt(mPrev.slice(5)) - 1] + ' ' + mPrev.slice(0, 4),
         dCur, dPrev,
-        revDelta: dPrev.rev > 0 ? ((dCur.rev - dPrev.rev) / dPrev.rev) * 100 : null,
-        cntDelta: dPrev.count > 0 ? ((dCur.count - dPrev.count) / dPrev.count) * 100 : null,
-        ticketCur: dCur.count > 0 ? dCur.rev / dCur.count : 0,
-        ticketPrev: dPrev.count > 0 ? dPrev.rev / dPrev.count : 0,
-        curicoSvcComp, curicoDowComp,
-        trend: curicoMonths.map(k => ({ label: MONTHS_ES_FULL[parseInt(k.slice(5)) - 1].slice(0, 3), count: curicoByMonth[k].count, rev: curicoByMonth[k].rev })),
+        revDelta:    dPrev.rev    > 0 ? ((dCur.rev    - dPrev.rev)    / dPrev.rev)    * 100 : null,
+        cntDelta:    dPrev.count  > 0 ? ((dCur.count  - dPrev.count)  / dPrev.count)  * 100 : null,
+        ticketDelta: dPrev.ticket > 0 ? ((dCur.ticket - dPrev.ticket) / dPrev.ticket) * 100 : null,
+        svcComp, missedOpps, rising, dowComp,
+        retained, newPat, retPct,
+        trend,
       }
     }
+
+    const fontovaMoM = buildLocalMoM(filtered.filter(t => t.local_id === 1))
+    // periodComp kept as alias so existing JSX section still works (will be removed below)
+    const periodComp = null
+
+    const curicoComp = buildLocalMoM(filtered.filter(t => t.local_id === 2))
 
     // ── Membresía: patentes frecuentes (2+ y 3+ visitas en el mismo mes) ──
     const allMonthsForFreq = monthKeys.slice(-6) // last 6 months
@@ -450,7 +382,7 @@ export default function Analytics() {
       dayAvgs, bestDay, worstDay,
       loyalPatentes, totalPatentes, loyaltyRate: totalPatentes > 0 ? (loyalPatentes / totalPatentes) * 100 : 0,
       growthRate, last3Rev, prev3Rev,
-      bestTicketService, periodComp, curicoComp, freqByMonth, latestFreq, suggestedMembership,
+      bestTicketService, fontovaMoM, curicoComp, freqByMonth, latestFreq, suggestedMembership,
     }
   }, [filtered])
 
@@ -863,9 +795,9 @@ export default function Analytics() {
             borderWidth: 2, tension: 0.4, pointRadius: 3,
           }]
         }
-        const missedCurico = cc.curicoSvcComp.filter(s => s.delta !== null && s.delta < -15 && s.prevCount >= 3).slice(0, 3)
-        const risingCurico = cc.curicoSvcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 3).slice(0, 2)
-        const bestDow = cc.curicoDowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a, b) => b.delta - a.delta)[0]
+        const missedCurico = cc.svcComp.filter(s => s.delta !== null && s.delta < -15 && s.prevCount >= 3).slice(0, 3)
+        const risingCurico = cc.svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 3).slice(0, 2)
+        const bestDow = cc.dowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a, b) => b.delta - a.delta)[0]
         return (
           <div className="space-y-5">
             <div className="flex items-center gap-3 pt-2">
@@ -883,7 +815,7 @@ export default function Analytics() {
                 {[
                   { label: 'Ingresos', prev: fmtCLP(cc.dPrev.rev), cur: fmtCLP(cc.dCur.rev), g: cc.revDelta },
                   { label: 'Servicios', prev: cc.dPrev.count.toLocaleString(), cur: cc.dCur.count.toLocaleString(), g: cc.cntDelta },
-                  { label: 'Ticket prom.', prev: fmtCLP(cc.ticketPrev), cur: fmtCLP(cc.ticketCur), g: cc.ticketCur && cc.ticketPrev ? ((cc.ticketCur - cc.ticketPrev) / cc.ticketPrev) * 100 : null },
+                  { label: 'Ticket prom.', prev: fmtCLP(cc.dPrev.ticket), cur: fmtCLP(cc.dCur.ticket), g: cc.ticketDelta },
                 ].map(({ label, prev, cur, g }) => (
                   <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between">
                     <div>
@@ -938,7 +870,7 @@ export default function Analytics() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/60">
-                    {cc.curicoSvcComp.map(s => (
+                    {cc.svcComp.map(s => (
                       <tr key={s.name} className={`hover:bg-gray-800/30 ${s.delta !== null && s.delta < -15 ? 'bg-rose-500/5' : ''}`}>
                         <td className="py-1.5 pr-3 text-gray-300 max-w-[140px] truncate">{s.name}</td>
                         <td className="py-1.5 text-right text-gray-500">{s.prevCount || '—'}</td>
@@ -960,7 +892,7 @@ export default function Analytics() {
                   Días de semana Curicó (promedio por día)
                 </h3>
                 <div className="space-y-2.5">
-                  {cc.curicoDowComp.filter(d => d.day !== 'Domingo').map(d => (
+                  {cc.dowComp.filter(d => d.day !== 'Domingo').map(d => (
                     <div key={d.day} className="flex items-center gap-2">
                       <span className="text-xs text-gray-400 w-20 shrink-0">{pl(d.day)}</span>
                       <div className="flex-1 h-4 bg-gray-800 rounded-full overflow-hidden">
@@ -1143,109 +1075,102 @@ export default function Analytics() {
         )
       })()}
 
-      {/* ── MES VS MISMO MES AÑO ANTERIOR ── */}
-      {a.periodComp && (() => {
-        const pc = a.periodComp
-        const { monthLabel, mmCurL1, mmPrevL1, mmCurAll, mmPrevAll, mmCurL2,
-                l1Growth, l1CntGrowth, l1TicketGrowth,
-                svcComp, missedOpps, dowComp,
-                retainedMonth, newMonth, hasCurico } = pc
+      {/* ── FONTOVA: MES ANTERIOR VS ÚLTIMO MES ── */}
+      {a.fontovaMoM && (() => {
+        const fm = a.fontovaMoM
         const pl = d => d.endsWith('s') ? d : d + 's'
-        const prevYear = String(Number(pc.curMonthKey.slice(0,4)) - 1)
-        const curYear = pc.curMonthKey.slice(0,4)
-
-        // Rising / declining services for insights
-        const rising = svcComp.filter(s => s.cntDelta !== null && s.cntDelta > 20 && s.curCount >= 10).slice(0, 2)
-        const bestDowGrowth = dowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a,b) => b.delta - a.delta)[0]
-        const worstDowGrowth = dowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a,b) => a.delta - b.delta)[0]
+        const trendChartData = {
+          labels: fm.trend.map(t => t.label),
+          datasets: [{
+            label: 'Servicios',
+            data: fm.trend.map(t => t.count),
+            fill: true,
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            borderColor: '#3b82f6',
+            borderWidth: 2, tension: 0.4, pointRadius: 3,
+          }]
+        }
+        const bestDow = fm.dowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a, b) => b.delta - a.delta)[0]
         return (
           <div className="space-y-5">
-            {/* Section header */}
             <div className="flex items-center gap-3 pt-2">
               <div className="h-px flex-1 bg-gray-800" />
               <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
-                <Calendar size={13} className="text-indigo-400" />
-                {monthLabel} {prevYear} vs {monthLabel} {curYear} · mismo mes, año anterior
+                <Building2 size={13} className="text-blue-400" />
+                Fontova · {fm.labelPrev} vs {fm.labelCur}
               </div>
               <div className="h-px flex-1 bg-gray-800" />
             </div>
 
-            {/* Context note if Curicó is new */}
-            {hasCurico && (
-              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-4 flex items-start gap-3">
-                <Lightbulb size={14} className="text-indigo-400 mt-0.5 shrink-0" />
-                <p className="text-xs text-indigo-200">
-                  <span className="font-semibold">Curicó se abrió después de {monthLabel} {prevYear}</span> — los totales no son comparables directamente.
-                  La comparación correcta es <span className="font-semibold">Fontova solo</span> (+{l1CntGrowth?.toFixed(0)}% volumen YoY),
-                  mientras que los {mmCurL2.count} servicios de Curicó este mes son <span className="font-semibold">ingreso completamente nuevo</span>.
-                </p>
-              </div>
-            )}
-
-            {/* KPI cards: Fontova solo (fair) + Curicó net new */}
-            <div className={`grid gap-4 ${hasCurico ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3'}`}>
-              {[
-                { label: `Ingresos Fontova`, prev: fmtCLP(mmPrevL1.rev), cur: fmtCLP(mmCurL1.rev), growth: l1Growth },
-                { label: `Servicios Fontova`, prev: mmPrevL1.count.toLocaleString(), cur: mmCurL1.count.toLocaleString(), growth: l1CntGrowth },
-                { label: `Ticket prom. Fontova`, prev: fmtCLP(mmPrevL1.ticket), cur: fmtCLP(mmCurL1.ticket), growth: l1TicketGrowth },
-              ].map(({ label, prev, cur, growth }) => (
-                <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs text-gray-400 mb-2">{label}</p>
-                  <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                    <span className="text-xs text-gray-500">{prev}</span>
-                    <ArrowRight size={11} className="text-gray-600 shrink-0" />
-                    <span className="text-sm font-bold text-white">{cur}</span>
+            {/* KPIs + trend */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-3">
+                {[
+                  { label: 'Ingresos', prev: fmtCLP(fm.dPrev.rev), cur: fmtCLP(fm.dCur.rev), g: fm.revDelta },
+                  { label: 'Servicios', prev: fm.dPrev.count.toLocaleString(), cur: fm.dCur.count.toLocaleString(), g: fm.cntDelta },
+                  { label: 'Ticket prom.', prev: fmtCLP(fm.dPrev.ticket), cur: fmtCLP(fm.dCur.ticket), g: fm.ticketDelta },
+                ].map(({ label, prev, cur, g }) => (
+                  <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">{label}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-500">{prev}</span>
+                        <ArrowRight size={10} className="text-gray-600 shrink-0" />
+                        <span className="text-sm font-bold text-white">{cur}</span>
+                      </div>
+                    </div>
+                    {g != null && (
+                      <span className={`text-xs font-semibold flex items-center gap-1 ${g >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                        {g >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {g >= 0 ? '+' : ''}{g.toFixed(1)}%
+                      </span>
+                    )}
                   </div>
-                  {growth != null && (
-                    <span className={`text-xs font-semibold flex items-center gap-1 ${growth >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
-                      {growth >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                      {growth >= 0 ? '+' : ''}{growth.toFixed(1)}% vs {monthLabel} {prevYear}
-                    </span>
-                  )}
+                ))}
+              </div>
+              <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <p className="text-xs font-semibold text-white mb-3 flex items-center gap-2">
+                  <TrendingUp size={13} className="text-blue-400" />
+                  Tendencia Fontova (servicios por mes)
+                </p>
+                <div className="h-36">
+                  <Bar data={trendChartData} options={{
+                    ...CHART_OPTS,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} servicios` } } },
+                    scales: {
+                      x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                      y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                    }
+                  }} />
                 </div>
-              ))}
-              {hasCurico && (
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-                  <p className="text-xs text-blue-300 mb-2">Curicó (local nuevo)</p>
-                  <p className="text-sm font-bold text-white">{fmtCLP(mmCurL2.rev)}</p>
-                  <p className="text-xs text-gray-400 mt-1">{mmCurL2.count} servicios</p>
-                  <p className="text-xs text-blue-400 mt-1 font-medium">100% ingreso adicional</p>
-                </div>
-              )}
+              </div>
             </div>
 
-            {/* Service table: Fontova YoY */}
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
-                <BarChart2 size={15} className="text-indigo-400" />
-                Servicios: {monthLabel} {prevYear} vs {monthLabel} {curYear} (Fontova)
-              </h3>
-              <p className="text-xs text-gray-500 mb-4">Los servicios que bajaron son donde existe oportunidad de mejora</p>
-              <div className="overflow-x-auto">
+            {/* Service table + day comparison */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <BarChart2 size={14} className="text-blue-400" />
+                  Servicios Fontova: {fm.labelPrev} → {fm.labelCur}
+                </h3>
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-gray-500 border-b border-gray-800">
                       <th className="text-left pb-2 font-medium">Servicio</th>
-                      <th className="text-right pb-2 font-medium">{prevYear}</th>
-                      <th className="text-right pb-2 font-medium">{curYear}</th>
-                      <th className="text-right pb-2 font-medium">Δ ingresos</th>
-                      <th className="text-right pb-2 font-medium">Δ vol.</th>
+                      <th className="text-right pb-2 font-medium">Ant.</th>
+                      <th className="text-right pb-2 font-medium">Act.</th>
+                      <th className="text-right pb-2 font-medium">Δ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/60">
-                    {svcComp.map(s => (
-                      <tr key={s.name} className={`hover:bg-gray-800/30 ${s.cntDelta !== null && s.cntDelta < -10 ? 'bg-rose-500/5' : ''}`}>
-                        <td className="py-2 pr-4 text-gray-300 max-w-[160px] truncate">{s.name}</td>
-                        <td className="py-2 text-right text-gray-400">{s.prevCount > 0 ? fmtCLP(s.prevRev) : '—'}</td>
-                        <td className="py-2 text-right text-white font-medium">{s.curCount > 0 ? fmtCLP(s.curRev) : '—'}</td>
-                        <td className="py-2 text-right">
-                          {s.revDelta !== null
-                            ? <span className={`font-medium ${s.revDelta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>{s.revDelta >= 0 ? '+' : ''}{s.revDelta.toFixed(0)}%</span>
-                            : <span className="text-blue-400 text-xs">{s.curCount > 0 ? 'nuevo' : 'faltó'}</span>}
-                        </td>
-                        <td className="py-2 text-right">
-                          {s.cntDelta !== null
-                            ? <span className={`${s.cntDelta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>{s.cntDelta >= 0 ? '+' : ''}{s.cntDelta.toFixed(0)}%</span>
+                    {fm.svcComp.map(s => (
+                      <tr key={s.name} className={`hover:bg-gray-800/30 ${s.delta !== null && s.delta < -15 ? 'bg-rose-500/5' : ''}`}>
+                        <td className="py-1.5 pr-3 text-gray-300 max-w-[140px] truncate">{s.name}</td>
+                        <td className="py-1.5 text-right text-gray-500">{s.prevCount || '—'}</td>
+                        <td className="py-1.5 text-right text-white font-medium">{s.curCount || '—'}</td>
+                        <td className="py-1.5 text-right">
+                          {s.delta !== null
+                            ? <span className={`font-medium ${s.delta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>{s.delta >= 0 ? '+' : ''}{s.delta.toFixed(0)}%</span>
                             : <span className="text-blue-400">{s.curCount > 0 ? 'nuevo' : '—'}</span>}
                         </td>
                       </tr>
@@ -1253,134 +1178,97 @@ export default function Analytics() {
                   </tbody>
                 </table>
               </div>
-            </div>
 
-            {/* Day comparison + customer retention */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
-                  <Calendar size={15} className="text-blue-400" />
-                  Día de semana · {monthLabel} {prevYear} vs {monthLabel} {curYear}
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Calendar size={14} className="text-blue-400" />
+                  Días de semana Fontova (promedio por día)
                 </h3>
-                <p className="text-xs text-gray-500 mb-4">Promedio de servicios por día-tipo en el mes (normalizado)</p>
                 <div className="space-y-2.5">
-                  {dowComp.filter(d => d.day !== 'Domingo').map(d => (
-                    <div key={d.day} className="flex items-center gap-3">
+                  {fm.dowComp.filter(d => d.day !== 'Domingo').map(d => (
+                    <div key={d.day} className="flex items-center gap-2">
                       <span className="text-xs text-gray-400 w-20 shrink-0">{pl(d.day)}</span>
                       <div className="flex-1 h-4 bg-gray-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${(d.delta ?? 0) >= 0 ? 'bg-green-500/70' : 'bg-rose-500/70'}`}
-                          style={{ width: `${Math.min(Math.abs(d.delta ?? 0), 120)}%` }}
-                        />
+                        <div className={`h-full rounded-full ${(d.delta ?? 0) >= 0 ? 'bg-blue-500/70' : 'bg-rose-500/70'}`}
+                          style={{ width: `${Math.min(Math.abs(d.delta ?? 0), 120)}%` }} />
                       </div>
-                      <span className={`text-xs font-medium w-12 text-right shrink-0 ${(d.delta ?? 0) >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                      <span className={`text-xs font-medium w-10 text-right shrink-0 ${(d.delta ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}`}>
                         {d.delta !== null ? `${d.delta >= 0 ? '+' : ''}${d.delta.toFixed(0)}%` : '—'}
                       </span>
-                      <span className="text-xs text-gray-600 w-24 text-right shrink-0">
-                        {d.prevAvg.toFixed(1)} → {d.curAvg.toFixed(1)} /día
-                      </span>
+                      <span className="text-xs text-gray-600 w-20 text-right shrink-0">{d.prevAvg.toFixed(1)}→{d.curAvg.toFixed(1)}</span>
                     </div>
                   ))}
                 </div>
+                {bestDow && bestDow.delta !== null && bestDow.delta > 0 && (
+                  <p className="text-xs text-blue-300 mt-3 bg-blue-500/10 rounded-lg p-2">
+                    Los {pl(bestDow.day)} son el día con más crecimiento (+{bestDow.delta.toFixed(0)}%) en Fontova. Considera publicar contenido en RRSS esos días.
+                  </p>
+                )}
               </div>
+            </div>
 
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                  <Users size={15} className="text-green-400" />
-                  Clientes este mes: retención y nuevos
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-                    <div>
-                      <p className="text-lg font-bold text-green-400">{retainedMonth.toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">Clientes que volvieron</p>
-                      <p className="text-xs text-gray-500">ya visitaron en {monthLabel} {prevYear}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-green-300">
-                        {mmPrevAll.count > 0 ? Math.round((retainedMonth / Object.keys(mmPrevAll.patMap).length) * 100) : 0}%
-                      </p>
-                      <p className="text-xs text-gray-500">de retención</p>
-                    </div>
+            {/* Retention */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <Users size={14} className="text-green-400" />
+                Clientes Fontova: retención y nuevos
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                  <div>
+                    <p className="text-xl font-bold text-green-400">{fm.retained.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">Clientes que volvieron</p>
+                    <p className="text-xs text-gray-500">ya estaban en {fm.labelPrev}</p>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                    <div>
-                      <p className="text-lg font-bold text-blue-400">{newMonth.toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">Clientes nuevos este mes</p>
-                      <p className="text-xs text-gray-500">no estaban en {monthLabel} {prevYear}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-blue-300">
-                        {mmCurAll.count > 0 ? Math.round((newMonth / Object.keys(mmCurAll.patMap).length) * 100) : 0}%
-                      </p>
-                      <p className="text-xs text-gray-500">del total</p>
-                    </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-green-300">{fm.retPct}%</p>
+                    <p className="text-xs text-gray-500">retención</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <div>
+                    <p className="text-xl font-bold text-blue-400">{fm.newPat.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">Clientes nuevos</p>
+                    <p className="text-xs text-gray-500">no estaban en {fm.labelPrev}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-blue-300">
+                      {Object.keys(fm.dCur.patMap).length > 0 ? Math.round((fm.newPat / Object.keys(fm.dCur.patMap).length) * 100) : 0}%
+                    </p>
+                    <p className="text-xs text-gray-500">del total</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
+                  <div>
+                    <p className="text-xl font-bold text-rose-400">{Math.max(0, Object.keys(fm.dPrev.patMap).length - fm.retained).toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">No volvieron</p>
+                    <p className="text-xs text-gray-500">estaban en {fm.labelPrev}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-rose-300">{100 - fm.retPct}%</p>
+                    <p className="text-xs text-gray-500">tasa pérdida</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Actionable insights */}
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-widest font-medium mb-3 flex items-center gap-2">
-                <Lightbulb size={12} className="text-amber-400" />
-                Qué no se hizo este mes y debería repetirse · Qué funcionó y hay que potenciar
-              </p>
+            {/* Fontova actionable insights */}
+            {(fm.missedOpps.length > 0 || fm.rising.length > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {missedOpps.length > 0 && (
-                  <InsightCard
-                    icon={TrendingDown}
-                    title={`"${missedOpps[0].name}" bajó vs ${prevYear}`}
-                    tag="Oportunidad"
-                    accent="rose"
-                    body={`En {monthLabel} ${prevYear} se hicieron ${missedOpps[0].prevCount} de estos servicios; este año solo ${missedOpps[0].curCount} (${missedOpps[0].cntDelta?.toFixed(0)}%). ¿Se dejó de promocionar? ¿El personal no lo está ofreciendo? Reactívalo en caja como sugerencia activa o con una promo del tipo "hoy solo: 10% off en ${missedOpps[0].name}".`}
+                {fm.missedOpps[0] && (
+                  <InsightCard icon={TrendingDown} accent="rose" tag="Fontova — oportunidad"
+                    title={`"${fm.missedOpps[0].name}" bajó en Fontova`}
+                    body={`Pasó de ${fm.missedOpps[0].prevCount} a ${fm.missedOpps[0].curCount} servicios (${fm.missedOpps[0].delta?.toFixed(0)}%). Revisar si el personal lo está ofreciendo, si hay stock de insumos, o si necesita más visibilidad en el cartel de precios.`}
                   />
                 )}
-                {missedOpps.length > 1 && (
-                  <InsightCard
-                    icon={Target}
-                    title={`"${missedOpps[1].name}" también cayó`}
-                    tag="Oportunidad"
-                    accent="amber"
-                    body={`${missedOpps[1].prevCount} servicios en ${monthLabel} ${prevYear} → ${missedOpps[1].curCount} este año. Si este servicio tiene buen margen, vale la pena capacitar al equipo para ofrecerlo proactivamente. Un cajero que lo mencione una vez por cada 5 clientes puede recuperar el nivel anterior.`}
+                {fm.rising[0] && (
+                  <InsightCard icon={TrendingUp} accent="blue" tag="Fontova — potenciar"
+                    title={`"${fm.rising[0].name}" creció en Fontova`}
+                    body={`+${fm.rising[0].delta?.toFixed(0)}% (${fm.rising[0].prevCount} → ${fm.rising[0].curCount}). Identifica qué lo impulsó y repítelo. Si fue por capacitación del personal o por una promo, regístralo para sistematizarlo.`}
                   />
                 )}
-                {rising.length > 0 && (
-                  <InsightCard
-                    icon={TrendingUp}
-                    title={`"${rising[0].name}" creció fuerte`}
-                    tag="Repetir"
-                    accent="green"
-                    body={`+${rising[0].cntDelta?.toFixed(0)}% en volumen vs {monthLabel} ${prevYear}. ¿Qué lo impulsó? Identifica si fue una promo, mayor visibilidad en cartel, o recomendación del equipo — y replícalo en los meses siguientes. Este es tu producto en alza.`}
-                  />
-                )}
-                {bestDowGrowth && bestDowGrowth.delta !== null && bestDowGrowth.delta > 0 && (
-                  <InsightCard
-                    icon={Calendar}
-                    title={`Los ${pl(bestDowGrowth.day)} mejoraron más`}
-                    tag="Día estrella"
-                    accent="green"
-                    body={`+${bestDowGrowth.delta.toFixed(0)}% de servicios por ${bestDowGrowth.day} vs ${monthLabel} ${prevYear} (${bestDowGrowth.prevAvg.toFixed(1)} → ${bestDowGrowth.curAvg.toFixed(1)} servicios promedio). Revisa qué ocurrió ese día: ¿hubo promo, publicación en Instagram, o solo condiciones ideales? Documenta y repite.`}
-                  />
-                )}
-                {worstDowGrowth && worstDowGrowth.delta !== null && worstDowGrowth.delta < 0 && (
-                  <InsightCard
-                    icon={TrendingDown}
-                    title={`Los ${pl(worstDowGrowth.day)} bajaron`}
-                    tag="Recuperar"
-                    accent="rose"
-                    body={`${worstDowGrowth.delta.toFixed(0)}% vs ${monthLabel} ${prevYear} (${worstDowGrowth.prevAvg.toFixed(1)} → ${worstDowGrowth.curAvg.toFixed(1)} /día). Para recuperar: lanza una mini-promo ese día durante 2 semanas y mide. Si el promedio sube, institutciónaliza el descuento puntual.`}
-                  />
-                )}
-                <InsightCard
-                  icon={Users}
-                  title="Clientes que no volvieron"
-                  tag="Retención"
-                  accent="purple"
-                  body={`De los clientes de {monthLabel} ${prevYear}, ${Math.max(0, Object.keys(mmPrevAll.patMap).length - retainedMonth).toLocaleString()} no aparecieron este {monthLabel}. Es normal que no todos vuelvan el mismo mes, pero envíales un mensaje por WhatsApp o email recordándoles el servicio. Con una tasa de recuperación del 20%, agregas ${Math.round(Math.max(0, Object.keys(mmPrevAll.patMap).length - retainedMonth) * 0.2)} visitas extra.`}
-                />
               </div>
-            </div>
+            )}
           </div>
         )
       })()}
