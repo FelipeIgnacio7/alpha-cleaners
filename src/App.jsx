@@ -4,6 +4,7 @@ import Home from './pages/Home'
 import Ingresos from './pages/Ingresos'
 import Subarriendos from './pages/Subarriendos'
 import Gastos from './pages/Gastos'
+import Analytics from './pages/Analytics'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
             <Route path="/ingresos" element={<Ingresos />} />
             <Route path="/subarriendos" element={<Subarriendos />} />
             <Route path="/gastos" element={<Gastos />} />
+            <Route path="/analytics" element={<Analytics />} />
           </Routes>
         </main>
       </div>
