@@ -7,7 +7,7 @@ import {
 import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import {
   TrendingUp, TrendingDown, Zap, Target, Star, Users,
-  Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight
+  Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight, Building2
 } from 'lucide-react'
 
 ChartJS.register(
@@ -355,6 +355,90 @@ export default function Analytics() {
       hasCurico: curL2.length > 0,
     }
 
+    // ── Curicó: last month vs previous month (MoM) ──
+    const curicoRows = filtered.filter(t => t.local_id === 2)
+    const curicoByMonth = {}
+    curicoRows.forEach(t => {
+      const k = t.fecha.slice(0, 7)
+      if (!curicoByMonth[k]) curicoByMonth[k] = { count: 0, rev: 0, svcMap: {}, dowMap: Array(7).fill(null).map(() => ({ count: 0 })) }
+      curicoByMonth[k].count++
+      curicoByMonth[k].rev += Number(t.monto)
+      const s = (t.tipo_servicio || 'Sin datos').trim()
+      if (!curicoByMonth[k].svcMap[s]) curicoByMonth[k].svcMap[s] = { count: 0, ingresos: 0 }
+      curicoByMonth[k].svcMap[s].count++; curicoByMonth[k].svcMap[s].ingresos += Number(t.monto)
+      const [y, mo, d] = t.fecha.split('-')
+      const dow = new Date(+y, +mo - 1, +d).getDay()
+      curicoByMonth[k].dowMap[dow].count++
+    })
+    const curicoMonths = Object.keys(curicoByMonth).sort()
+    let curicoComp = null
+    if (curicoMonths.length >= 2) {
+      const mCur = curicoMonths[curicoMonths.length - 1]
+      const mPrev = curicoMonths[curicoMonths.length - 2]
+      const dCur = curicoByMonth[mCur]
+      const dPrev = curicoByMonth[mPrev]
+      const curicoSvcComp = (() => {
+        const allS = new Set([...Object.keys(dCur.svcMap), ...Object.keys(dPrev.svcMap)])
+        return [...allS].map(name => {
+          const c = dCur.svcMap[name] || { count: 0, ingresos: 0 }
+          const p = dPrev.svcMap[name] || { count: 0, ingresos: 0 }
+          return { name, curCount: c.count, curRev: c.ingresos, prevCount: p.count, prevRev: p.ingresos,
+            delta: p.count > 0 ? ((c.count - p.count) / p.count) * 100 : null }
+        }).filter(s => s.curCount >= 2 || s.prevCount >= 2).sort((a, b) => b.curRev - a.curRev).slice(0, 8)
+      })()
+      const curicoDowComp = DAYS_ES.map((day, i) => {
+        const [cy, cm] = mCur.split('-').map(Number)
+        const [py, pm] = mPrev.split('-').map(Number)
+        const occC = Array(7).fill(0); const occP = Array(7).fill(0)
+        const daysC = new Date(cy, cm, 0).getDate(); const daysP = new Date(py, pm, 0).getDate()
+        for (let d = 1; d <= daysC; d++) occC[new Date(cy, cm - 1, d).getDay()]++
+        for (let d = 1; d <= daysP; d++) occP[new Date(py, pm - 1, d).getDay()]++
+        const curAvg = occC[i] > 0 ? dCur.dowMap[i].count / occC[i] : 0
+        const prevAvg = occP[i] > 0 ? dPrev.dowMap[i].count / occP[i] : 0
+        return { day, curAvg, prevAvg, delta: prevAvg > 0 ? ((curAvg - prevAvg) / prevAvg) * 100 : null }
+      })
+      curicoComp = {
+        mCur, mPrev,
+        labelCur: MONTHS_ES_FULL[parseInt(mCur.slice(5)) - 1] + ' ' + mCur.slice(0, 4),
+        labelPrev: MONTHS_ES_FULL[parseInt(mPrev.slice(5)) - 1] + ' ' + mPrev.slice(0, 4),
+        dCur, dPrev,
+        revDelta: dPrev.rev > 0 ? ((dCur.rev - dPrev.rev) / dPrev.rev) * 100 : null,
+        cntDelta: dPrev.count > 0 ? ((dCur.count - dPrev.count) / dPrev.count) * 100 : null,
+        ticketCur: dCur.count > 0 ? dCur.rev / dCur.count : 0,
+        ticketPrev: dPrev.count > 0 ? dPrev.rev / dPrev.count : 0,
+        curicoSvcComp, curicoDowComp,
+        trend: curicoMonths.map(k => ({ label: MONTHS_ES_FULL[parseInt(k.slice(5)) - 1].slice(0, 3), count: curicoByMonth[k].count, rev: curicoByMonth[k].rev })),
+      }
+    }
+
+    // ── Membresía: patentes frecuentes (2+ y 3+ visitas en el mismo mes) ──
+    const allMonthsForFreq = monthKeys.slice(-6) // last 6 months
+    const freqByMonth = allMonthsForFreq.map(mk => {
+      const rows = filtered.filter(t => t.fecha.slice(0, 7) === mk && t.patente)
+      const byPat = {}
+      rows.forEach(t => {
+        const p = t.patente.trim()
+        if (!p) return
+        if (!byPat[p]) byPat[p] = { count: 0, rev: 0 }
+        byPat[p].count++; byPat[p].rev += Number(t.monto)
+      })
+      const two = Object.entries(byPat).filter(([, d]) => d.count >= 2)
+      const three = Object.entries(byPat).filter(([, d]) => d.count >= 3)
+      const avgTicket2 = two.length > 0 ? two.reduce((s, [, d]) => s + d.rev / d.count, 0) / two.length : 0
+      return {
+        month: mk,
+        label: MONTHS_ES_FULL[parseInt(mk.slice(5)) - 1].slice(0, 3) + ' ' + mk.slice(2, 4),
+        two: two.length, three: three.length,
+        avgTicket2: Math.round(avgTicket2),
+        topCandidates: two.sort((a, b) => b[1].count - a[1].count).slice(0, 8).map(([p, d]) => ({
+          patente: p, visits: d.count, total: d.rev, ticket: Math.round(d.rev / d.count)
+        })),
+      }
+    })
+    const latestFreq = freqByMonth[freqByMonth.length - 1]
+    // Suggested membership price: avg ticket of 2+ segment × 1.8 (good deal vs 2 visits)
+    const suggestedMembership = latestFreq ? Math.round(latestFreq.avgTicket2 * 1.8 / 1000) * 1000 : 0
+
     return {
       totalIngresos, ticketProm, totalCount: filtered.length,
       patentesCount: patentes.size, marcasCount: marcas.size,
@@ -366,7 +450,7 @@ export default function Analytics() {
       dayAvgs, bestDay, worstDay,
       loyalPatentes, totalPatentes, loyaltyRate: totalPatentes > 0 ? (loyalPatentes / totalPatentes) * 100 : 0,
       growthRate, last3Rev, prev3Rev,
-      bestTicketService, periodComp,
+      bestTicketService, periodComp, curicoComp, freqByMonth, latestFreq, suggestedMembership,
     }
   }, [filtered])
 
@@ -763,6 +847,301 @@ export default function Analytics() {
           ))}
         </div>
       </div>
+
+      {/* ── CURICÓ: MES ANTERIOR VS ÚLTIMO MES ── */}
+      {a.curicoComp && (() => {
+        const cc = a.curicoComp
+        const pl = d => d.endsWith('s') ? d : d + 's'
+        const trendChartData = {
+          labels: cc.trend.map(t => t.label),
+          datasets: [{
+            label: 'Servicios',
+            data: cc.trend.map(t => t.count),
+            fill: true,
+            backgroundColor: 'rgba(139,92,246,0.1)',
+            borderColor: '#8b5cf6',
+            borderWidth: 2, tension: 0.4, pointRadius: 3,
+          }]
+        }
+        const missedCurico = cc.curicoSvcComp.filter(s => s.delta !== null && s.delta < -15 && s.prevCount >= 3).slice(0, 3)
+        const risingCurico = cc.curicoSvcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 3).slice(0, 2)
+        const bestDow = cc.curicoDowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a, b) => b.delta - a.delta)[0]
+        return (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 pt-2">
+              <div className="h-px flex-1 bg-gray-800" />
+              <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
+                <Building2 size={13} className="text-purple-400" />
+                Curicó · {cc.labelPrev} vs {cc.labelCur}
+              </div>
+              <div className="h-px flex-1 bg-gray-800" />
+            </div>
+
+            {/* KPIs + trend */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-3">
+                {[
+                  { label: 'Ingresos', prev: fmtCLP(cc.dPrev.rev), cur: fmtCLP(cc.dCur.rev), g: cc.revDelta },
+                  { label: 'Servicios', prev: cc.dPrev.count.toLocaleString(), cur: cc.dCur.count.toLocaleString(), g: cc.cntDelta },
+                  { label: 'Ticket prom.', prev: fmtCLP(cc.ticketPrev), cur: fmtCLP(cc.ticketCur), g: cc.ticketCur && cc.ticketPrev ? ((cc.ticketCur - cc.ticketPrev) / cc.ticketPrev) * 100 : null },
+                ].map(({ label, prev, cur, g }) => (
+                  <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">{label}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-500">{prev}</span>
+                        <ArrowRight size={10} className="text-gray-600 shrink-0" />
+                        <span className="text-sm font-bold text-white">{cur}</span>
+                      </div>
+                    </div>
+                    {g != null && (
+                      <span className={`text-xs font-semibold flex items-center gap-1 ${g >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                        {g >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {g >= 0 ? '+' : ''}{g.toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <p className="text-xs font-semibold text-white mb-3 flex items-center gap-2">
+                  <TrendingUp size={13} className="text-purple-400" />
+                  Tendencia Curicó (servicios por mes)
+                </p>
+                <div className="h-36">
+                  <Bar data={trendChartData} options={{
+                    ...CHART_OPTS,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} servicios` } } },
+                    scales: {
+                      x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                      y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                    }
+                  }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Service table + day comparison */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <BarChart2 size={14} className="text-purple-400" />
+                  Servicios Curicó: {cc.labelPrev} → {cc.labelCur}
+                </h3>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-800">
+                      <th className="text-left pb-2 font-medium">Servicio</th>
+                      <th className="text-right pb-2 font-medium">Ant.</th>
+                      <th className="text-right pb-2 font-medium">Act.</th>
+                      <th className="text-right pb-2 font-medium">Δ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60">
+                    {cc.curicoSvcComp.map(s => (
+                      <tr key={s.name} className={`hover:bg-gray-800/30 ${s.delta !== null && s.delta < -15 ? 'bg-rose-500/5' : ''}`}>
+                        <td className="py-1.5 pr-3 text-gray-300 max-w-[140px] truncate">{s.name}</td>
+                        <td className="py-1.5 text-right text-gray-500">{s.prevCount || '—'}</td>
+                        <td className="py-1.5 text-right text-white font-medium">{s.curCount || '—'}</td>
+                        <td className="py-1.5 text-right">
+                          {s.delta !== null
+                            ? <span className={`font-medium ${s.delta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>{s.delta >= 0 ? '+' : ''}{s.delta.toFixed(0)}%</span>
+                            : <span className="text-blue-400">{s.curCount > 0 ? 'nuevo' : '—'}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Calendar size={14} className="text-blue-400" />
+                  Días de semana Curicó (promedio por día)
+                </h3>
+                <div className="space-y-2.5">
+                  {cc.curicoDowComp.filter(d => d.day !== 'Domingo').map(d => (
+                    <div key={d.day} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-20 shrink-0">{pl(d.day)}</span>
+                      <div className="flex-1 h-4 bg-gray-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${(d.delta ?? 0) >= 0 ? 'bg-purple-500/70' : 'bg-rose-500/70'}`}
+                          style={{ width: `${Math.min(Math.abs(d.delta ?? 0), 120)}%` }} />
+                      </div>
+                      <span className={`text-xs font-medium w-10 text-right shrink-0 ${(d.delta ?? 0) >= 0 ? 'text-purple-400' : 'text-rose-400'}`}>
+                        {d.delta !== null ? `${d.delta >= 0 ? '+' : ''}${d.delta.toFixed(0)}%` : '—'}
+                      </span>
+                      <span className="text-xs text-gray-600 w-20 text-right shrink-0">{d.prevAvg.toFixed(1)}→{d.curAvg.toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+                {bestDow && bestDow.delta !== null && bestDow.delta > 0 && (
+                  <p className="text-xs text-purple-300 mt-3 bg-purple-500/10 rounded-lg p-2">
+                    Los {pl(bestDow.day)} son el día con más crecimiento (+{bestDow.delta.toFixed(0)}%) en Curicó. Considera publicar contenido en RRSS esos días.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Curicó actionable insights */}
+            {(missedCurico.length > 0 || risingCurico.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {missedCurico[0] && (
+                  <InsightCard icon={TrendingDown} accent="rose" tag="Curicó — oportunidad"
+                    title={`"${missedCurico[0].name}" bajó en Curicó`}
+                    body={`Pasó de ${missedCurico[0].prevCount} a ${missedCurico[0].curCount} servicios (${missedCurico[0].delta?.toFixed(0)}%). Revisar si el personal lo está ofreciendo, si hay stock de insumos, o si necesita más visibilidad en el cartel de precios.`}
+                  />
+                )}
+                {risingCurico[0] && (
+                  <InsightCard icon={TrendingUp} accent="purple" tag="Curicó — potenciar"
+                    title={`"${risingCurico[0].name}" creció en Curicó`}
+                    body={`+${risingCurico[0].delta?.toFixed(0)}% (${risingCurico[0].prevCount} → ${risingCurico[0].curCount}). Identifica qué lo impulsó y repítelo. Si fue por capacitación del personal o por una promo, regístralo para sistematizarlo.`}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ── MEMBRESÍA: PATENTES FRECUENTES ── */}
+      {a.latestFreq && (() => {
+        const lf = a.latestFreq
+        const freqTrend = a.freqByMonth
+        const suggestedMbr = a.suggestedMembership
+        const curMonthName = MONTHS_ES_FULL[parseInt(lf.month.slice(5)) - 1] + ' ' + lf.month.slice(0, 4)
+        return (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 pt-2">
+              <div className="h-px flex-1 bg-gray-800" />
+              <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
+                <Award size={13} className="text-amber-400" />
+                Candidatos a Membresía · Patentes frecuentes por mes
+              </div>
+              <div className="h-px flex-1 bg-gray-800" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Summary + membership math */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+                    <Star size={14} className="text-amber-400" />
+                    Resumen {curMonthName}
+                  </h3>
+                  <p className="text-xs text-gray-400">Patentes con 2+ visitas en el mismo mes</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                    <p className="text-2xl font-bold text-amber-400">{lf.two}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Patentes 2+ visitas</p>
+                    <p className="text-xs text-gray-500">este mes</p>
+                  </div>
+                  <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                    <p className="text-2xl font-bold text-orange-400">{lf.three}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Patentes 3+ visitas</p>
+                    <p className="text-xs text-gray-500">este mes</p>
+                  </div>
+                </div>
+                {/* Membership math */}
+                <div className="border border-amber-500/20 rounded-xl p-4 bg-amber-500/5 space-y-2">
+                  <p className="text-xs font-semibold text-amber-300 flex items-center gap-2">
+                    <Lightbulb size={12} />
+                    Simulación de membresía
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Ticket promedio (segmento 2+)</span>
+                      <span className="text-white font-medium">{fmtCLP(lf.avgTicket2)}/visita</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Gasto estimado 2 visitas/mes</span>
+                      <span className="text-white font-medium">{fmtCLP(lf.avgTicket2 * 2)}/mes</span>
+                    </div>
+                    <div className="h-px bg-amber-500/20 my-1" />
+                    <div className="flex justify-between">
+                      <span className="text-amber-300 font-medium">Membresía sugerida</span>
+                      <span className="text-amber-300 font-bold">{fmtCLP(suggestedMbr)}/mes</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Ahorro para el cliente</span>
+                      <span className="text-green-400 font-medium">{fmtCLP(lf.avgTicket2 * 2 - suggestedMbr)}/mes</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Ingreso garantizado (si {lf.two} se suscriben)</span>
+                      <span className="text-blue-400 font-medium">{fmtCLP(suggestedMbr * lf.two)}/mes</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trend 2+ per month + top candidates */}
+              <div className="space-y-4">
+                {/* Trend bar */}
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                    <BarChart2 size={14} className="text-amber-400" />
+                    Evolución patentes frecuentes (2+/mes)
+                  </h3>
+                  <div className="space-y-1.5">
+                    {freqTrend.map(m => {
+                      const maxTwo = Math.max(...freqTrend.map(x => x.two), 1)
+                      return (
+                        <div key={m.month} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 w-14 shrink-0">{m.label}</span>
+                          <div className="flex-1 h-5 bg-gray-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-amber-500/60 rounded-full" style={{ width: `${(m.two / maxTwo) * 100}%` }} />
+                          </div>
+                          <span className="text-xs text-amber-300 font-medium w-6 text-right shrink-0">{m.two}</span>
+                          <span className="text-xs text-gray-600 w-20 text-right shrink-0">{fmtCLP(m.avgTicket2)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Top candidates table */}
+            {lf.topCandidates.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+                  <Users size={14} className="text-amber-400" />
+                  Candidatos prioritarios {curMonthName} — ofrecerles membresía
+                </h3>
+                <p className="text-xs text-gray-500 mb-4">Patentes con 2+ visitas en el mes. Son tus clientes más valiosos y los más fáciles de convertir a membresía.</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-800">
+                      <th className="text-left pb-2 font-medium">Patente</th>
+                      <th className="text-right pb-2 font-medium">Visitas mes</th>
+                      <th className="text-right pb-2 font-medium">Gasto mes</th>
+                      <th className="text-right pb-2 font-medium">Ticket prom.</th>
+                      <th className="text-right pb-2 font-medium">Ahorro membresía</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60">
+                    {lf.topCandidates.map(c => (
+                      <tr key={c.patente} className="hover:bg-amber-500/5">
+                        <td className="py-2 font-mono text-amber-300 font-medium">{c.patente}</td>
+                        <td className="py-2 text-right">
+                          <span className={`font-bold ${c.visits >= 3 ? 'text-orange-400' : 'text-white'}`}>{c.visits}</span>
+                          {c.visits >= 3 && <span className="ml-1 text-orange-400">★</span>}
+                        </td>
+                        <td className="py-2 text-right text-white">{fmtCLP(c.total)}</td>
+                        <td className="py-2 text-right text-gray-300">{fmtCLP(c.ticket)}</td>
+                        <td className="py-2 text-right text-green-400 font-medium">{fmtCLP(Math.max(0, c.total - suggestedMbr))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-gray-500 mt-3">
+                  ★ = 3+ visitas en el mes (candidatos premium). Contactarlos directamente con la propuesta de membresía puede tener una tasa de conversión del 40-60%.
+                </p>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── MES VS MISMO MES AÑO ANTERIOR ── */}
       {a.periodComp && (() => {
