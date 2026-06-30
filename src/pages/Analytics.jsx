@@ -380,6 +380,11 @@ export default function Analytics() {
     const latestFreqFontova = freqByMonthFontova[freqByMonthFontova.length - 1]
     const suggestedMembershipFontova = latestFreqFontova ? Math.round(latestFreqFontova.avgTicket2 * 1.8 / 1000) * 1000 : 0
 
+    const curicoRows = filtered.filter(t => t.local_id === 2)
+    const freqByMonthCurico = buildFreqByMonth(curicoRows, allMonthsForFreq)
+    const latestFreqCurico = freqByMonthCurico[freqByMonthCurico.length - 1]
+    const suggestedMembershipCurico = latestFreqCurico ? Math.round(latestFreqCurico.avgTicket2 * 1.8 / 1000) * 1000 : 0
+
     return {
       totalIngresos, ticketProm, totalCount: filtered.length,
       patentesCount: patentes.size, marcasCount: marcas.size,
@@ -393,6 +398,7 @@ export default function Analytics() {
       growthRate, last3Rev, prev3Rev,
       bestTicketService, fontovaMoM, curicoComp, freqByMonth, latestFreq, suggestedMembership,
       freqByMonthFontova, latestFreqFontova, suggestedMembershipFontova,
+      freqByMonthCurico, latestFreqCurico, suggestedMembershipCurico,
     }
   }, [filtered])
 
@@ -942,11 +948,11 @@ export default function Analytics() {
               </div>
             )}
 
-            {/* Membresía Fontova */}
-            {a.latestFreqFontova && (() => {
-              const lf = a.latestFreqFontova
-              const freqTrend = a.freqByMonthFontova
-              const suggestedMbr = a.suggestedMembershipFontova
+            {/* Membresía Curicó */}
+            {a.latestFreqCurico && (() => {
+              const lf = a.latestFreqCurico
+              const freqTrend = a.freqByMonthCurico
+              const suggestedMbr = a.suggestedMembershipCurico
               const curMonthName = MONTHS_ES_FULL[parseInt(lf.month.slice(5)) - 1] + ' ' + lf.month.slice(0, 4)
               return (
                 <div className="space-y-4">
@@ -954,7 +960,7 @@ export default function Analytics() {
                     <div className="h-px flex-1 bg-gray-800" />
                     <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
                       <Award size={12} className="text-amber-400" />
-                      Candidatos a Membresía · Fontova
+                      Candidatos a Membresía · Curicó
                     </div>
                     <div className="h-px flex-1 bg-gray-800" />
                   </div>
@@ -964,7 +970,7 @@ export default function Analytics() {
                       <div>
                         <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
                           <Star size={14} className="text-amber-400" />
-                          Resumen {curMonthName} · Fontova
+                          Resumen {curMonthName} · Curicó
                         </h3>
                         <p className="text-xs text-gray-400">Patentes con 2+ visitas en el mismo mes</p>
                       </div>
@@ -983,7 +989,7 @@ export default function Analytics() {
                       <div className="border border-amber-500/20 rounded-xl p-4 bg-amber-500/5 space-y-2">
                         <p className="text-xs font-semibold text-amber-300 flex items-center gap-2">
                           <Lightbulb size={12} />
-                          Simulación de membresía Fontova
+                          Simulación de membresía Curicó
                         </p>
                         <div className="space-y-1.5 text-xs">
                           <div className="flex justify-between">
@@ -1014,7 +1020,7 @@ export default function Analytics() {
                     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                         <BarChart2 size={14} className="text-amber-400" />
-                        Evolución patentes frecuentes Fontova (2+/mes)
+                        Evolución patentes frecuentes Curicó (2+/mes)
                       </h3>
                       <div className="space-y-1.5">
                         {freqTrend.map(m => {
@@ -1038,7 +1044,7 @@ export default function Analytics() {
                     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
                         <Users size={14} className="text-amber-400" />
-                        Candidatos prioritarios Fontova {curMonthName}
+                        Candidatos prioritarios Curicó {curMonthName}
                       </h3>
                       <p className="text-xs text-gray-500 mb-4">Patentes con 2+ visitas. Son los más fáciles de convertir a membresía.</p>
                       <table className="w-full text-xs">
@@ -1410,6 +1416,137 @@ export default function Analytics() {
                 )}
               </div>
             )}
+
+            {/* Membresía Fontova */}
+            {a.latestFreqFontova && (() => {
+              const lf = a.latestFreqFontova
+              const freqTrend = a.freqByMonthFontova
+              const suggestedMbr = a.suggestedMembershipFontova
+              const curMonthName = MONTHS_ES_FULL[parseInt(lf.month.slice(5)) - 1] + ' ' + lf.month.slice(0, 4)
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 pt-1">
+                    <div className="h-px flex-1 bg-gray-800" />
+                    <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
+                      <Award size={12} className="text-amber-400" />
+                      Candidatos a Membresía · Fontova
+                    </div>
+                    <div className="h-px flex-1 bg-gray-800" />
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+                          <Star size={14} className="text-amber-400" />
+                          Resumen {curMonthName} · Fontova
+                        </h3>
+                        <p className="text-xs text-gray-400">Patentes con 2+ visitas en el mismo mes</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                          <p className="text-2xl font-bold text-amber-400">{lf.two}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Patentes 2+ visitas</p>
+                          <p className="text-xs text-gray-500">este mes</p>
+                        </div>
+                        <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                          <p className="text-2xl font-bold text-orange-400">{lf.three}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Patentes 3+ visitas</p>
+                          <p className="text-xs text-gray-500">este mes</p>
+                        </div>
+                      </div>
+                      <div className="border border-amber-500/20 rounded-xl p-4 bg-amber-500/5 space-y-2">
+                        <p className="text-xs font-semibold text-amber-300 flex items-center gap-2">
+                          <Lightbulb size={12} />
+                          Simulación de membresía Fontova
+                        </p>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Ticket promedio (segmento 2+)</span>
+                            <span className="text-white font-medium">{fmtCLP(lf.avgTicket2)}/visita</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Gasto estimado 2 visitas/mes</span>
+                            <span className="text-white font-medium">{fmtCLP(lf.avgTicket2 * 2)}/mes</span>
+                          </div>
+                          <div className="h-px bg-amber-500/20 my-1" />
+                          <div className="flex justify-between">
+                            <span className="text-amber-300 font-medium">Membresía sugerida</span>
+                            <span className="text-amber-300 font-bold">{fmtCLP(suggestedMbr)}/mes</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Ahorro para el cliente</span>
+                            <span className="text-green-400 font-medium">{fmtCLP(lf.avgTicket2 * 2 - suggestedMbr)}/mes</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Ingreso garantizado (si {lf.two} se suscriben)</span>
+                            <span className="text-blue-400 font-medium">{fmtCLP(suggestedMbr * lf.two)}/mes</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <BarChart2 size={14} className="text-amber-400" />
+                        Evolución patentes frecuentes Fontova (2+/mes)
+                      </h3>
+                      <div className="space-y-1.5">
+                        {freqTrend.map(m => {
+                          const maxTwo = Math.max(...freqTrend.map(x => x.two), 1)
+                          return (
+                            <div key={m.month} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-14 shrink-0">{m.label}</span>
+                              <div className="flex-1 h-5 bg-gray-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500/60 rounded-full" style={{ width: `${(m.two / maxTwo) * 100}%` }} />
+                              </div>
+                              <span className="text-xs text-amber-300 font-medium w-6 text-right shrink-0">{m.two}</span>
+                              <span className="text-xs text-gray-600 w-20 text-right shrink-0">{fmtCLP(m.avgTicket2)}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {lf.topCandidates.length > 0 && (
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+                        <Users size={14} className="text-amber-400" />
+                        Candidatos prioritarios Fontova {curMonthName}
+                      </h3>
+                      <p className="text-xs text-gray-500 mb-4">Patentes con 2+ visitas. Son los más fáciles de convertir a membresía.</p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-800">
+                            <th className="text-left pb-2 font-medium">Patente</th>
+                            <th className="text-right pb-2 font-medium">Visitas</th>
+                            <th className="text-right pb-2 font-medium">Gasto mes</th>
+                            <th className="text-right pb-2 font-medium">Ticket prom.</th>
+                            <th className="text-right pb-2 font-medium">Ahorro membresía</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/60">
+                          {lf.topCandidates.map(c => (
+                            <tr key={c.patente} className="hover:bg-amber-500/5">
+                              <td className="py-2 font-mono text-amber-300 font-medium">{c.patente}</td>
+                              <td className="py-2 text-right">
+                                <span className={`font-bold ${c.visits >= 3 ? 'text-orange-400' : 'text-white'}`}>{c.visits}</span>
+                                {c.visits >= 3 && <span className="ml-1 text-orange-400">★</span>}
+                              </td>
+                              <td className="py-2 text-right text-white">{fmtCLP(c.total)}</td>
+                              <td className="py-2 text-right text-gray-300">{fmtCLP(c.ticket)}</td>
+                              <td className="py-2 text-right text-green-400 font-medium">{fmtCLP(Math.max(0, c.total - suggestedMbr))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="text-xs text-gray-500 mt-3">★ = 3+ visitas en el mes. Contactarlos directamente con la propuesta de membresía puede tener una tasa de conversión del 40-60%.</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )
       })()}
