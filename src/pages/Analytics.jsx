@@ -465,8 +465,8 @@ export default function Analytics() {
             Ventas por Día de Semana
           </h2>
           <p className="text-xs text-gray-500 mb-4">
-            <span className="text-green-400 font-medium">{a.bestDay.day}</span> es el mejor día ·{' '}
-            <span className="text-rose-400 font-medium">{a.worstDay.day}</span> es el más lento
+            <span className="text-green-400 font-medium">{(() => { const d = a.bestDay.day; return d.endsWith('s') ? d : d + 's' })()}</span> = mejor día ·{' '}
+            <span className="text-rose-400 font-medium">{(() => { const d = a.worstDay.day; return d.endsWith('s') ? d : d + 's' })()}</span> = más lento
           </p>
           <div className="h-44">
             <Bar
@@ -587,7 +587,10 @@ export default function Analytics() {
             title={`Promo "${a.worstDay.day} Express"`}
             tag="Alta prioridad"
             accent="rose"
-            body={`Los ${a.worstDay.day}s son tu día más lento, con ${a.worstDay.count.toLocaleString()} servicios históricos vs ${a.bestDay.count.toLocaleString()} los ${a.bestDay.day}s. Ofrece 15% descuento en Lavado Plus los ${a.worstDay.day}s para mover demanda. Costo estimado: $${Math.round(a.ticketProm * 0.15).toLocaleString()} por auto, recuperable con 2-3 autos extra.`}
+            body={(() => {
+              const pl = d => d.endsWith('s') ? d : d + 's'
+              return `Los ${pl(a.worstDay.day)} son tu día más lento, con ${a.worstDay.count.toLocaleString()} servicios históricos vs ${a.bestDay.count.toLocaleString()} los ${pl(a.bestDay.day)}. Ofrece 15% descuento en Lavado Plus los ${pl(a.worstDay.day)} para mover demanda. Costo estimado: $${Math.round(a.ticketProm * 0.15).toLocaleString()} por auto, recuperable con 2-3 autos extra.`
+            })()}
           />
 
           <InsightCard
