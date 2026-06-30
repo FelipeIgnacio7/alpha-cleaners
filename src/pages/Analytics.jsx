@@ -7,7 +7,7 @@ import {
 import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import {
   TrendingUp, TrendingDown, Zap, Target, Star, Users,
-  Calendar, Award, Lightbulb, BarChart2, ShoppingBag
+  Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight
 } from 'lucide-react'
 
 ChartJS.register(
@@ -247,6 +247,74 @@ export default function Analytics() {
       .map(([name, v]) => ({ name, ticket: v.ingresos / v.count, count: v.count }))
       .sort((a, b) => b.ticket - a.ticket)[0]
 
+    // ── Same-period YoY comparison: H1 2025 vs H1 2026 ──
+    const h1_2025 = filtered.filter(t => t.fecha >= '2025-01-01' && t.fecha <= '2025-06-30')
+    const h1_2026 = filtered.filter(t => t.fecha >= '2026-01-01' && t.fecha <= '2026-06-30')
+
+    function periodMetrics(rows) {
+      const rev = rows.reduce((s, t) => s + Number(t.monto), 0)
+      const count = rows.length
+      const svcMap = {}
+      const brandMap = {}
+      const dayMap = Array(7).fill(null).map(() => ({ count: 0 }))
+      rows.forEach(t => {
+        const s = t.tipo_servicio || 'Sin datos'
+        if (!svcMap[s]) svcMap[s] = { count: 0, ingresos: 0 }
+        svcMap[s].count++; svcMap[s].ingresos += Number(t.monto)
+        if (t.marca) { brandMap[t.marca] = (brandMap[t.marca] || 0) + 1 }
+        const [y, mo, d] = t.fecha.split('-')
+        const dow = new Date(+y, +mo - 1, +d).getDay()
+        dayMap[dow].count++
+      })
+      const patMap = {}
+      rows.filter(t => t.patente).forEach(t => { patMap[t.patente] = (patMap[t.patente] || 0) + 1 })
+      return { rev, count, ticket: count > 0 ? rev / count : 0, svcMap, brandMap, dayMap, patMap }
+    }
+
+    const pm25 = periodMetrics(h1_2025)
+    const pm26 = periodMetrics(h1_2026)
+
+    // Service growth: compare top services H1 2026 vs H1 2025
+    const svcGrowth = Object.entries(pm26.svcMap)
+      .map(([name, v26]) => {
+        const v25 = pm25.svcMap[name] || { count: 0, ingresos: 0 }
+        const revGrowth = v25.ingresos > 0 ? ((v26.ingresos - v25.ingresos) / v25.ingresos) * 100 : null
+        const cntGrowth = v25.count > 0 ? ((v26.count - v25.count) / v25.count) * 100 : null
+        return { name, count26: v26.count, rev26: v26.ingresos, count25: v25.count, rev25: v25.ingresos, revGrowth, cntGrowth }
+      })
+      .filter(s => s.count26 >= 20)
+      .sort((a, b) => b.rev26 - a.rev26)
+      .slice(0, 8)
+
+    // Brand growth
+    const brandGrowth = Object.entries(pm26.brandMap)
+      .map(([brand, c26]) => ({ brand, c26, c25: pm25.brandMap[brand] || 0, growth: pm25.brandMap[brand] ? ((c26 - pm25.brandMap[brand]) / pm25.brandMap[brand]) * 100 : null }))
+      .filter(b => b.c26 >= 15)
+      .sort((a, b) => b.c26 - a.c26)
+      .slice(0, 8)
+
+    // Day comparison
+    const dayComparison = DAYS_ES.map((day, i) => ({
+      day,
+      count25: pm25.dayMap[i].count,
+      count26: pm26.dayMap[i].count,
+      growth: pm25.dayMap[i].count > 0 ? ((pm26.dayMap[i].count - pm25.dayMap[i].count) / pm25.dayMap[i].count) * 100 : null,
+    }))
+
+    // New patentes in H1 2026 that didn't visit in H1 2025
+    const pat25Set = new Set(Object.keys(pm25.patMap))
+    const newPat26 = Object.keys(pm26.patMap).filter(p => !pat25Set.has(p)).length
+    const retainedPat = Object.keys(pm26.patMap).filter(p => pat25Set.has(p)).length
+
+    const periodComp = {
+      pm25, pm26,
+      revGrowth: pm25.rev > 0 ? ((pm26.rev - pm25.rev) / pm25.rev) * 100 : 0,
+      cntGrowth: pm25.count > 0 ? ((pm26.count - pm25.count) / pm25.count) * 100 : 0,
+      ticketGrowth: pm25.ticket > 0 ? ((pm26.ticket - pm25.ticket) / pm25.ticket) * 100 : 0,
+      svcGrowth, brandGrowth, dayComparison,
+      newPat26, retainedPat,
+    }
+
     return {
       totalIngresos, ticketProm, totalCount: filtered.length,
       patentesCount: patentes.size, marcasCount: marcas.size,
@@ -258,7 +326,7 @@ export default function Analytics() {
       dayAvgs, bestDay, worstDay,
       loyalPatentes, totalPatentes, loyaltyRate: totalPatentes > 0 ? (loyalPatentes / totalPatentes) * 100 : 0,
       growthRate, last3Rev, prev3Rev,
-      bestTicketService,
+      bestTicketService, periodComp,
     }
   }, [filtered])
 
@@ -655,6 +723,236 @@ export default function Analytics() {
           ))}
         </div>
       </div>
+
+      {/* ── MISMO PERÍODO: H1 2025 vs H1 2026 ── */}
+      {a.periodComp && (() => {
+        const pc = a.periodComp
+        const { pm25, pm26, revGrowth, cntGrowth, ticketGrowth, svcGrowth, brandGrowth, dayComparison, newPat26, retainedPat } = pc
+        const rising = svcGrowth.filter(s => s.revGrowth !== null && s.revGrowth > 15).slice(0, 3)
+        const declining = svcGrowth.filter(s => s.revGrowth !== null && s.revGrowth < -5).slice(0, 2)
+        const bestGrowthDay = [...dayComparison].filter(d => d.growth !== null && d.day !== 'Domingo').sort((a, b) => b.growth - a.growth)[0]
+        const worstGrowthDay = [...dayComparison].filter(d => d.growth !== null && d.day !== 'Domingo').sort((a, b) => a.growth - b.growth)[0]
+        const pl = d => d.endsWith('s') ? d : d + 's'
+        return (
+          <div className="space-y-5">
+            {/* Section header */}
+            <div className="flex items-center gap-3 pt-2">
+              <div className="h-px flex-1 bg-gray-800" />
+              <div className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-widest">
+                <Calendar size={13} className="text-indigo-400" />
+                Análisis Mismo Período · Ene–Jun 2025 vs Ene–Jun 2026
+              </div>
+              <div className="h-px flex-1 bg-gray-800" />
+            </div>
+
+            {/* Period KPIs */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: 'Ingresos', v25: fmtCLP(pm25.rev), v26: fmtCLP(pm26.rev), growth: revGrowth },
+                { label: 'Servicios', v25: pm25.count.toLocaleString(), v26: pm26.count.toLocaleString(), growth: cntGrowth },
+                { label: 'Ticket prom.', v25: fmtCLP(pm25.ticket), v26: fmtCLP(pm26.ticket), growth: ticketGrowth },
+              ].map(({ label, v25, v26, growth }) => (
+                <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 mb-3">{label}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm text-gray-500">{v25}</span>
+                    <ArrowRight size={12} className="text-gray-600 shrink-0" />
+                    <span className="text-sm font-bold text-white">{v26}</span>
+                  </div>
+                  <span className={`text-xs font-semibold flex items-center gap-1 ${growth >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                    {growth >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                    {growth >= 0 ? '+' : ''}{growth.toFixed(1)}% vs mismo período 2025
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Service comparison table */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <BarChart2 size={15} className="text-indigo-400" />
+                Servicios: Ene–Jun 2025 vs Ene–Jun 2026
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-800">
+                      <th className="text-left pb-2 font-medium">Servicio</th>
+                      <th className="text-right pb-2 font-medium">2025</th>
+                      <th className="text-right pb-2 font-medium">2026</th>
+                      <th className="text-right pb-2 font-medium">Δ Ingresos</th>
+                      <th className="text-right pb-2 font-medium">Δ Vol.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60">
+                    {svcGrowth.map(s => (
+                      <tr key={s.name} className="hover:bg-gray-800/30">
+                        <td className="py-2 pr-4 text-gray-300 max-w-[160px] truncate">{s.name}</td>
+                        <td className="py-2 text-right text-gray-400">{fmtCLP(s.rev25)}</td>
+                        <td className="py-2 text-right text-white font-medium">{fmtCLP(s.rev26)}</td>
+                        <td className="py-2 text-right">
+                          {s.revGrowth !== null ? (
+                            <span className={`font-medium ${s.revGrowth >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                              {s.revGrowth >= 0 ? '+' : ''}{s.revGrowth.toFixed(0)}%
+                            </span>
+                          ) : <span className="text-gray-600">nuevo</span>}
+                        </td>
+                        <td className="py-2 text-right">
+                          {s.cntGrowth !== null ? (
+                            <span className={`${s.cntGrowth >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                              {s.cntGrowth >= 0 ? '+' : ''}{s.cntGrowth.toFixed(0)}%
+                            </span>
+                          ) : <span className="text-blue-400">nuevo</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Day comparison + Brand growth */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Day comparison */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <Calendar size={15} className="text-blue-400" />
+                  Día de semana: crecimiento vs 2025
+                </h3>
+                <div className="space-y-2">
+                  {dayComparison.filter(d => d.day !== 'Domingo').map(d => (
+                    <div key={d.day} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400 w-20 shrink-0">{pl(d.day)}</span>
+                      <div className="flex-1 h-5 bg-gray-800 rounded-full overflow-hidden relative">
+                        <div
+                          className={`h-full rounded-full ${(d.growth ?? 0) >= 0 ? 'bg-green-500/70' : 'bg-rose-500/70'}`}
+                          style={{ width: `${Math.min(Math.abs(d.growth ?? 0), 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-medium w-14 text-right shrink-0 ${(d.growth ?? 0) >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                        {d.growth !== null ? `${d.growth >= 0 ? '+' : ''}${d.growth.toFixed(0)}%` : '—'}
+                      </span>
+                      <span className="text-xs text-gray-500 w-20 text-right shrink-0">{d.count25} → {d.count26}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Top brand growth */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <Target size={15} className="text-purple-400" />
+                  Marcas: volumen mismo período
+                </h3>
+                <div className="space-y-2">
+                  {brandGrowth.map(b => (
+                    <div key={b.brand} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300 w-24 truncate">{b.brand}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">{b.c25} → {b.c26}</span>
+                        {b.growth !== null ? (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${b.growth >= 0 ? 'bg-green-500/15 text-green-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                            {b.growth >= 0 ? '+' : ''}{b.growth.toFixed(0)}%
+                          </span>
+                        ) : <span className="text-xs text-blue-400 px-2 py-0.5 rounded-full bg-blue-500/15">nuevo</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Customer retention */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <Users size={15} className="text-green-400" />
+                Clientes: retención y nuevos Ene–Jun 2026 vs Ene–Jun 2025
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-green-400">{retainedPat.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">Clientes retenidos</p>
+                  <p className="text-xs text-gray-500">visitaron en ambos períodos</p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-400">{newPat26.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">Clientes nuevos 2026</p>
+                  <p className="text-xs text-gray-500">no visitaron en H1 2025</p>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-purple-400">
+                    {pm25.count > 0 ? Math.round((retainedPat / Object.keys(pm25.patMap).length) * 100) : 0}%
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">Tasa retención</p>
+                  <p className="text-xs text-gray-500">de H1 2025 volvió en 2026</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actionable insights from comparison */}
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-widest font-medium mb-3 flex items-center gap-2">
+                <Lightbulb size={12} className="text-amber-400" />
+                Qué repetir y mejorar este semestre
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {rising.length > 0 && (
+                  <InsightCard
+                    icon={TrendingUp}
+                    title={`Potenciar "${rising[0].name}"`}
+                    tag="En alza"
+                    accent="green"
+                    body={`Este servicio creció ${rising[0].revGrowth?.toFixed(0)}% en ingresos vs el mismo período 2025 (de ${fmtCLP(rising[0].rev25)} a ${fmtCLP(rising[0].rev26)}). Repite lo que funcionó: ¿hubo promo especial? ¿lo incluiste como combo? Consolídalo como tu estrella y agrégalo al material de publicidad.`}
+                  />
+                )}
+                {rising.length > 1 && (
+                  <InsightCard
+                    icon={Zap}
+                    title={`"${rising[1].name}" sigue creciendo`}
+                    tag="En alza"
+                    accent="blue"
+                    body={`+${rising[1].revGrowth?.toFixed(0)}% vs H1 2025. Considera crear un pack mensual alrededor de este servicio. Si atrae clientes por primera vez, asegúrate de que el proceso de atención sea impecable para fidelizarlos.`}
+                  />
+                )}
+                {bestGrowthDay && (
+                  <InsightCard
+                    icon={Calendar}
+                    title={`Los ${pl(bestGrowthDay.day)} crecieron más`}
+                    tag="Día estrella"
+                    accent="green"
+                    body={`${pl(bestGrowthDay.day)} creció ${bestGrowthDay.growth?.toFixed(0)}% en volumen (${bestGrowthDay.count25} → ${bestGrowthDay.count26} servicios). ¿Qué pasó ese día? Si hay algo que lo explique (promo, redes sociales, nuevo personal), repítelo. Considera agregar un turno o abrir más temprano.`}
+                  />
+                )}
+                {worstGrowthDay && (worstGrowthDay.growth ?? 0) < 0 && (
+                  <InsightCard
+                    icon={TrendingDown}
+                    title={`Los ${pl(worstGrowthDay.day)} bajaron`}
+                    tag="Recuperar"
+                    accent="rose"
+                    body={`${pl(worstGrowthDay.day)} cayó ${Math.abs(worstGrowthDay.growth ?? 0).toFixed(0)}% vs H1 2025 (${worstGrowthDay.count25} → ${worstGrowthDay.count26} servicios). Lanza una promo específica: "Flash ${worstGrowthDay.day} — 10% off en Lavado Plus". Meta: recuperar al menos el nivel de 2025 en 30 días.`}
+                  />
+                )}
+                {declining.length > 0 && (
+                  <InsightCard
+                    icon={Target}
+                    title={`Revisar "${declining[0].name}"`}
+                    tag="En baja"
+                    accent="amber"
+                    body={`Cayó ${Math.abs(declining[0].revGrowth ?? 0).toFixed(0)}% vs H1 2025 (${fmtCLP(declining[0].rev25)} → ${fmtCLP(declining[0].rev26)}). Analiza si el precio subió, si hay competencia directa, o si el servicio dejó de incluirse en combos. Considera un descuento temporal para reactivar demanda.`}
+                  />
+                )}
+                <InsightCard
+                  icon={Users}
+                  title="Foco en retención"
+                  tag="Clientes"
+                  accent="purple"
+                  body={`De los clientes de H1 2025, ${retainedPat.toLocaleString()} volvieron en H1 2026 (${pm25.count > 0 ? Math.round((retainedPat / Object.keys(pm25.patMap).length) * 100) : 0}% retención). Los ${newPat26.toLocaleString()} clientes nuevos son una oportunidad: si logras que vuelvan 2-3 veces más, tu base crece de forma sostenida. Implementa recordatorio por WhatsApp a los 30 días de su última visita.`}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
