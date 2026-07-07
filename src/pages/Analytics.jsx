@@ -7,7 +7,8 @@ import {
 import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import {
   TrendingUp, TrendingDown, Zap, Target, Star, Users,
-  Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight, Building2
+  Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight, Building2,
+  Megaphone, Activity, Clock, AlertTriangle, Crown, UserX, UserPlus, RefreshCw
 } from 'lucide-react'
 
 ChartJS.register(
@@ -94,6 +95,49 @@ function InsightCard({ icon: Icon, title, body, accent = 'blue', tag }) {
           </div>
           <p className="text-sm text-gray-300 leading-relaxed">{body}</p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function AdInsightCard({ icon: Icon, title, body, accion, prioridad, canal, copy, accent = 'blue' }) {
+  const accentMap = {
+    blue:   { border: 'border-blue-500/30',   icon: 'text-blue-400 bg-blue-500/10' },
+    green:  { border: 'border-green-500/30',  icon: 'text-green-400 bg-green-500/10' },
+    amber:  { border: 'border-amber-500/30',  icon: 'text-amber-400 bg-amber-500/10' },
+    rose:   { border: 'border-rose-500/30',   icon: 'text-rose-400 bg-rose-500/10' },
+    purple: { border: 'border-purple-500/30', icon: 'text-purple-400 bg-purple-500/10' },
+  }
+  const { border, icon: iconCls } = accentMap[accent] || accentMap.blue
+  const priCls = prioridad === 'Alta' ? 'bg-rose-500/20 text-rose-300' : prioridad === 'Media' ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700 text-gray-400'
+  return (
+    <div className={`bg-gray-900 border ${border} rounded-xl p-5 flex flex-col gap-3`}>
+      <div className="flex items-start gap-3">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconCls}`}>
+          <Icon size={15} />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-white leading-tight">{title}</p>
+          <p className="text-xs text-gray-400 mt-1 leading-relaxed">{body}</p>
+        </div>
+      </div>
+      <div className="border-t border-gray-800 pt-3 space-y-2">
+        <div className="flex items-start gap-2">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide w-16 shrink-0 pt-0.5">Acción</span>
+          <span className="text-xs text-gray-200">{accion}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide w-16 shrink-0">Prioridad</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priCls}`}>{prioridad}</span>
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide ml-1 shrink-0">Canal</span>
+          <span className="text-xs text-gray-300">{canal}</span>
+        </div>
+        {copy && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide w-16 shrink-0 pt-0.5">Copy</span>
+            <span className="text-xs text-gray-300 italic border-l-2 border-gray-700 pl-2 leading-relaxed">{copy}</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -385,6 +429,121 @@ export default function Analytics() {
     const latestFreqCurico = freqByMonthCurico[freqByMonthCurico.length - 1]
     const suggestedMembershipCurico = latestFreqCurico ? Math.round(latestFreqCurico.avgTicket2 * 1.8 / 1000) * 1000 : 0
 
+    // ── Inteligencia Publicitaria ─────────────────────────────────────────
+
+    // RFM Segmentation per patente
+    const hoyMs = Date.now()
+    const rfmByPat = {}
+    filtered.filter(t => t.patente).forEach(t => {
+      const p = t.patente.trim().toUpperCase()
+      if (!rfmByPat[p]) rfmByPat[p] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity }
+      rfmByPat[p].visits++
+      rfmByPat[p].total += Number(t.monto)
+      const ms = new Date(t.fecha).getTime()
+      if (ms > rfmByPat[p].lastMs) rfmByPat[p].lastMs = ms
+      if (ms < rfmByPat[p].firstMs) rfmByPat[p].firstMs = ms
+    })
+
+    const rfmChampions = [], rfmAtRisk = [], rfmLost = [], rfmNew = [], rfmHighTicket = []
+    const avgTicketAll = filtered.length > 0 ? filtered.reduce((s, t) => s + Number(t.monto), 0) / filtered.length : 0
+
+    Object.entries(rfmByPat).forEach(([pat, d]) => {
+      const days = (hoyMs - d.lastMs) / 86400000
+      const ticket = Math.round(d.total / d.visits)
+      const c = { patente: pat, visits: d.visits, ticket, total: d.total, days: Math.round(days) }
+      if (d.visits >= 3 && days <= 60) rfmChampions.push(c)
+      else if (d.visits >= 2 && days > 60 && days <= 120) rfmAtRisk.push(c)
+      else if (days > 120) rfmLost.push(c)
+      if ((hoyMs - d.firstMs) / 86400000 <= 45 && d.visits <= 2) rfmNew.push(c)
+      if (ticket > avgTicketAll * 1.5 && d.visits >= 2) rfmHighTicket.push(c)
+    })
+
+    const rfmSegments = {
+      champions:  rfmChampions.sort((a, b) => b.visits - a.visits).slice(0, 10),
+      atRisk:     rfmAtRisk.sort((a, b) => a.days - b.days).slice(0, 10),
+      lost:       rfmLost.sort((a, b) => a.days - b.days).slice(0, 10),
+      new:        rfmNew.sort((a, b) => a.days - b.days).slice(0, 10),
+      highTicket: rfmHighTicket.sort((a, b) => b.ticket - a.ticket).slice(0, 10),
+      counts: {
+        champions: rfmChampions.length, atRisk: rfmAtRisk.length,
+        lost: rfmLost.length, new: rfmNew.length, highTicket: rfmHighTicket.length,
+      }
+    }
+
+    // Qué promover: compare last two months by service
+    const mCurKey  = monthKeys[monthKeys.length - 1]
+    const mPrevKey = monthKeys[monthKeys.length - 2]
+
+    function svcStatsForMonth(mk) {
+      const m = {}
+      if (!mk) return m
+      filtered.filter(t => t.fecha.slice(0, 7) === mk).forEach(t => {
+        const s = (t.tipo_servicio || 'Sin datos').trim()
+        if (!m[s]) m[s] = { count: 0, rev: 0 }
+        m[s].count++; m[s].rev += Number(t.monto)
+      })
+      return m
+    }
+
+    const svcCur  = svcStatsForMonth(mCurKey)
+    const svcPrev = svcStatsForMonth(mPrevKey)
+
+    const promoByProfitability = Object.entries(svcCur)
+      .filter(([, v]) => v.count >= 5)
+      .map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count, rev: v.rev }))
+      .sort((a, b) => b.ticket - a.ticket)[0] || null
+
+    const promoGrowing = Object.entries(svcCur)
+      .filter(([name, v]) => svcPrev[name] && v.count >= 3)
+      .map(([name, v]) => {
+        const prev = svcPrev[name]
+        const delta = prev.count > 0 ? ((v.count - prev.count) / prev.count) * 100 : 0
+        return { name, count: v.count, delta: Math.round(delta), ticket: Math.round(v.rev / v.count) }
+      })
+      .filter(s => s.delta > 0)
+      .sort((a, b) => b.delta - a.delta)[0] || null
+
+    const promoRescue = Object.entries(svcPrev)
+      .filter(([, v]) => v.count >= 5)
+      .map(([name, v]) => {
+        const cur = svcCur[name] || { count: 0, rev: 0 }
+        const delta = ((cur.count - v.count) / v.count) * 100
+        return { name, prevCount: v.count, curCount: cur.count, delta: Math.round(delta), ticket: Math.round(v.rev / v.count) }
+      })
+      .filter(s => s.delta < -20)
+      .sort((a, b) => a.delta - b.delta)[0] || null
+
+    const promoDecision = { byProfitability: promoByProfitability, growing: promoGrowing, rescue: promoRescue }
+
+    // Best week of month
+    const byWeekCount = [0, 0, 0, 0, 0]
+    filtered.forEach(t => {
+      const day = parseInt(t.fecha.slice(8, 10))
+      byWeekCount[Math.min(Math.floor((day - 1) / 7), 4)]++
+    })
+    const bestWeekIdx = byWeekCount.indexOf(Math.max(...byWeekCount))
+    const WEEK_LABELS = ['1ª semana (1–7)', '2ª semana (8–14)', '3ª semana (15–21)', '4ª semana (22–28)', 'Fin de mes (29+)']
+    const bestWeek = WEEK_LABELS[bestWeekIdx]
+
+    // 30-day forecast via linear trend on last 3 months
+    const fcastRevArr = monthKeys.slice(-4).map(k => byMonth[k]?.ingresos || 0)
+    const last3Arr = fcastRevArr.slice(-3)
+    const avgL3 = last3Arr.reduce((s, v) => s + v, 0) / (last3Arr.length || 1)
+    const trendSlope = last3Arr.length >= 2
+      ? (last3Arr[last3Arr.length - 1] - last3Arr[0]) / (last3Arr.length - 1)
+      : 0
+    const forecastNextRev  = Math.max(0, avgL3 + trendSlope)
+    const forecastLastRev  = fcastRevArr[fcastRevArr.length - 1] || 0
+    const forecastDeltaPct = forecastLastRev > 0 ? ((forecastNextRev - forecastLastRev) / forecastLastRev) * 100 : 0
+    const forecastRisk     = forecastDeltaPct < -15 ? 'alto' : forecastDeltaPct < -5 ? 'medio' : 'bajo'
+    const forecastMonthLabel = (() => {
+      if (!mCurKey) return ''
+      const [y, m] = mCurKey.split('-').map(Number)
+      const nextM = m === 12 ? 1 : m + 1
+      return MONTHS_ES_FULL[nextM - 1] + ' ' + (m === 12 ? y + 1 : y)
+    })()
+    const forecast = { nextRev: forecastNextRev, lastRev: forecastLastRev, deltaPct: forecastDeltaPct, risk: forecastRisk, monthLabel: forecastMonthLabel }
+
     return {
       totalIngresos, ticketProm, totalCount: filtered.length,
       patentesCount: patentes.size, marcasCount: marcas.size,
@@ -399,6 +558,8 @@ export default function Analytics() {
       bestTicketService, fontovaMoM, curicoComp, freqByMonth, latestFreq, suggestedMembership,
       freqByMonthFontova, latestFreqFontova, suggestedMembershipFontova,
       freqByMonthCurico, latestFreqCurico, suggestedMembershipCurico,
+      rfmSegments, promoDecision, bestWeek, forecast,
+      mCurLabel: mCurKey ? MONTHS_ES_FULL[parseInt(mCurKey.slice(5)) - 1] + ' ' + mCurKey.slice(0, 4) : '',
     }
   }, [filtered])
 
@@ -772,6 +933,245 @@ export default function Analytics() {
             accent="green"
             body={`Tus top marcas son ${a.topBrands.slice(0, 3).map(([b]) => b).join(', ')}. Crea contenido en Instagram y TikTok específico para estos dueños: "¿Tienes un ${a.topBrands[0]?.[0] || 'Toyota'}? Tu auto merece el mejor lavado." El marketing hiperfocalizado en marcas convierte 3× mejor que publicidad genérica.`}
           />
+        </div>
+      </div>
+
+      {/* ── INTELIGENCIA PUBLICITARIA ── */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <Megaphone size={16} className="text-violet-400" />
+          <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
+        </div>
+        <p className="text-xs text-gray-500 mb-5">Basado en datos reales · {a.mCurLabel}</p>
+
+        {/* A. Qué promover esta semana */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Qué promover esta semana</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          {a.promoDecision.byProfitability ? (
+            <AdInsightCard
+              icon={Star}
+              accent="amber"
+              title={`Rentabilidad: ${a.promoDecision.byProfitability.name}`}
+              body={`El servicio de mayor ticket en ${a.mCurLabel} con ${a.promoDecision.byProfitability.count} unidades y ${fmtCLP(a.promoDecision.byProfitability.ticket)} promedio. Margen alto, ya tiene demanda probada.`}
+              accion="Destacar en perfil de Instagram y stories. Subir foto del resultado."
+              prioridad="Alta"
+              canal="Instagram Stories + Google My Business"
+              copy={`"¿Sabías que nuestro ${a.promoDecision.byProfitability.name} deja tu auto como nuevo? Pide hora hoy mismo 🚗✨"`}
+            />
+          ) : (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
+              <p className="text-xs text-gray-500">Necesitas más datos del mes actual</p>
+            </div>
+          )}
+
+          {a.promoDecision.growing ? (
+            <AdInsightCard
+              icon={TrendingUp}
+              accent="green"
+              title={`Demanda creciente: ${a.promoDecision.growing.name}`}
+              body={`Creció +${a.promoDecision.growing.delta}% vs mes anterior (${a.promoDecision.growing.count} servicios). Momentum alcista — amplificar ahora captura clientes en el momento de mayor interés.`}
+              accion="Lanzar anuncio pagado en Meta apuntando a radio 5km del local."
+              prioridad="Alta"
+              canal="Facebook + Instagram Ads"
+              copy={`"${a.promoDecision.growing.name} en Alpha Cleaners — ${fmtCLP(a.promoDecision.growing.ticket)} y listo al instante. Reserva online 📲"`}
+            />
+          ) : (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
+              <p className="text-xs text-gray-500">Sin servicios con crecimiento significativo</p>
+            </div>
+          )}
+
+          {a.promoDecision.rescue ? (
+            <AdInsightCard
+              icon={AlertTriangle}
+              accent="rose"
+              title={`Rescatar caída: ${a.promoDecision.rescue.name}`}
+              body={`Cayó ${a.promoDecision.rescue.delta}% vs mes anterior (de ${a.promoDecision.rescue.prevCount} a ${a.promoDecision.rescue.curCount} servicios). Si tenía demanda, hay clientes que dejaron de venir — reactivarlos es más barato que adquirir nuevos.`}
+              accion="WhatsApp a clientes que lo usaron antes pero no este mes."
+              prioridad="Media"
+              canal="WhatsApp Business + Reels"
+              copy={`"Vuelve a darle el trato que merece a tu auto con nuestro ${a.promoDecision.rescue.name}. Esta semana con 10% OFF para clientes frecuentes 🔧"`}
+            />
+          ) : (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
+              <p className="text-xs text-gray-500">Sin caídas significativas — buena señal</p>
+            </div>
+          )}
+        </div>
+
+        {/* B. Segmentos RFM */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Segmentos de clientes (RFM)</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <AdInsightCard
+            icon={Crown}
+            accent="amber"
+            title={`Champions — ${a.rfmSegments.counts.champions} patentes`}
+            body={`3+ visitas, última hace menos de 60 días. Son tu base más valiosa y embajadores naturales de la marca.`}
+            accion="Invitar a dejar reseña en Google. Ofrecer tarjeta VIP con beneficios exclusivos."
+            prioridad="Alta"
+            canal="WhatsApp directo + Google Reviews"
+            copy={`"Gracias por confiar siempre en Alpha Cleaners. Como cliente frecuente, tienes un lavado Plus gratis en tu próxima visita 🏆"`}
+          />
+
+          <AdInsightCard
+            icon={RefreshCw}
+            accent="blue"
+            title={`En riesgo — ${a.rfmSegments.counts.atRisk} patentes`}
+            body={`2+ visitas pero sin venir entre 60 y 120 días. Aún recuerdan la marca — ventana ideal para reactivar antes de que se vayan definitivamente.`}
+            accion="Campaña de reactivación personalizada con nombre + servicio previo."
+            prioridad="Alta"
+            canal="WhatsApp Business (Claudio)"
+            copy={`"Hola [nombre], hace un tiempo que no traes tu [auto] 🚗 ¿Le damos una manita esta semana? Reserva con descuento especial para ti."`}
+          />
+
+          <AdInsightCard
+            icon={UserX}
+            accent="rose"
+            title={`Perdidos — ${a.rfmSegments.counts.lost} patentes`}
+            body={`Sin visitas hace más de 120 días. Recuperar el 10% con un incentivo fuerte puede generar ingresos equivalentes a varios meses de publicidad normal.`}
+            accion="Campaña de incentivo con oferta de reingreso (descuento 20% o servicio extra gratis)."
+            prioridad="Media"
+            canal="WhatsApp + Instagram retargeting"
+            copy={`"Te echamos de menos en Alpha Cleaners. Vuelve esta semana y tu primer lavado tiene 20% de descuento — solo por ser tú 💙"`}
+          />
+
+          <AdInsightCard
+            icon={UserPlus}
+            accent="green"
+            title={`Nuevos — ${a.rfmSegments.counts.new} patentes`}
+            body={`Primera visita en los últimos 45 días. El 70% de los clientes que no vuelven en 30 días nunca regresan — convertir la segunda visita es crítico.`}
+            accion="Mensaje de bienvenida + descuento segunda visita enviado 7 días post-servicio."
+            prioridad="Alta"
+            canal="WhatsApp Business"
+            copy={`"Gracias por elegirnos 🙌 Como regalo de bienvenida, tu próxima visita tiene 15% de descuento. ¡Te esperamos pronto!"`}
+          />
+
+          <AdInsightCard
+            icon={Zap}
+            accent="purple"
+            title={`Alto ticket — ${a.rfmSegments.counts.highTicket} patentes`}
+            body={`Ticket promedio >1.5× la media general (${fmtCLP(a.ticketProm * 1.5)}+), 2+ visitas. Clientes premium con mayor disposición a pagar servicios de valor.`}
+            accion="Ofrecer paquetes premium, detailing y servicios de protección de pintura."
+            prioridad="Media"
+            canal="Instagram + WhatsApp directo"
+            copy={`"Tu auto merece el mejor cuidado. Conoce nuestro servicio Premium Care: tratamiento completo desde ${fmtCLP(a.ticketProm * 1.6)} 🏅"`}
+          />
+
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-3 font-medium">Resumen RFM</p>
+            <div className="space-y-2.5">
+              {[
+                { label: 'Champions', count: a.rfmSegments.counts.champions, color: 'bg-amber-400' },
+                { label: 'En riesgo', count: a.rfmSegments.counts.atRisk, color: 'bg-blue-400' },
+                { label: 'Perdidos', count: a.rfmSegments.counts.lost, color: 'bg-rose-400' },
+                { label: 'Nuevos', count: a.rfmSegments.counts.new, color: 'bg-green-400' },
+                { label: 'Alto ticket', count: a.rfmSegments.counts.highTicket, color: 'bg-purple-400' },
+              ].map(({ label, count, color }) => {
+                const total = a.rfmSegments.counts.champions + a.rfmSegments.counts.atRisk + a.rfmSegments.counts.lost + a.rfmSegments.counts.new + a.rfmSegments.counts.highTicket
+                const pct = total > 0 ? (count / total) * 100 : 0
+                return (
+                  <div key={label}>
+                    <div className="flex justify-between items-center mb-0.5">
+                      <span className="text-xs text-gray-300">{label}</span>
+                      <span className="text-xs text-gray-400">{count.toLocaleString()}</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* C. Timing y Forecast */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Timing y Proyección</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          {/* Timing */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock size={14} className="text-blue-400" />
+              <p className="text-sm font-semibold text-white">Cuándo publicar</p>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs text-gray-400">Mejor día para captar</p>
+                  <p className="text-sm font-medium text-white">{a.bestDay.day}</p>
+                  <p className="text-xs text-gray-500">{a.bestDay.count.toLocaleString()} servicios históricos</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-400">Día más lento (promo)</p>
+                  <p className="text-sm font-medium text-white">{a.worstDay.day}</p>
+                  <p className="text-xs text-gray-500">Ideal para descuentos de relleno</p>
+                </div>
+              </div>
+              <div className="border-t border-gray-800 pt-3">
+                <p className="text-xs text-gray-400 mb-1">Mejor semana del mes para ads</p>
+                <p className="text-sm font-medium text-white">{a.bestWeek}</p>
+                <p className="text-xs text-gray-500 mt-1">Mayor volumen histórico — presupuesto de ads rinde más en este período</p>
+              </div>
+              <div className="border-t border-gray-800 pt-3 space-y-1">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Acción recomendada</p>
+                <p className="text-xs text-gray-300">Programar posts orgánicos los {a.bestDay.day}s. Activar ads la {a.bestWeek.toLowerCase()}. Lanzar promos los {a.worstDay.day}s para mover demanda baja.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Forecast */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity size={14} className="text-violet-400" />
+              <p className="text-sm font-semibold text-white">Proyección {a.forecast.monthLabel}</p>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-end gap-3">
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Proyección</p>
+                  <p className="text-2xl font-bold text-white">{fmtCLP(a.forecast.nextRev)}</p>
+                </div>
+                <div className={`flex items-center gap-1 mb-1 text-sm font-medium ${a.forecast.deltaPct >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {a.forecast.deltaPct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {a.forecast.deltaPct >= 0 ? '+' : ''}{a.forecast.deltaPct.toFixed(1)}% vs mes anterior
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-400">Nivel de riesgo:</p>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  a.forecast.risk === 'alto' ? 'bg-rose-500/20 text-rose-300' :
+                  a.forecast.risk === 'medio' ? 'bg-amber-500/20 text-amber-300' :
+                  'bg-green-500/20 text-green-300'
+                }`}>
+                  {a.forecast.risk === 'alto' ? 'Alto' : a.forecast.risk === 'medio' ? 'Medio' : 'Bajo'}
+                </span>
+              </div>
+              <div className="border-t border-gray-800 pt-3 space-y-1">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Acción correctiva</p>
+                <p className="text-xs text-gray-300">
+                  {a.forecast.risk === 'alto'
+                    ? `Riesgo alto de caída. Activar campaña de clientes en riesgo (${a.rfmSegments.counts.atRisk} patentes) + empujar ${a.promoDecision.byProfitability?.name || 'servicio de mayor ticket'} con descuento limitado.`
+                    : a.forecast.risk === 'medio'
+                    ? `Tendencia moderada. Mantener ads activos la ${a.bestWeek.toLowerCase()} y reactivar ${a.rfmSegments.counts.atRisk} clientes en riesgo con WhatsApp.`
+                    : `Proyección positiva. Invertir en captación de nuevos clientes (${a.rfmSegments.counts.new} nuevos este período) para consolidar el crecimiento.`
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* D. Meta Ads placeholder */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Análisis de Anuncios Meta (Instagram + Facebook)</h3>
+        <div className="bg-gray-900 border border-dashed border-gray-700 rounded-xl p-8 text-center">
+          <Activity size={24} className="text-gray-600 mx-auto mb-3" />
+          <p className="text-sm text-gray-400 font-medium mb-1">Esperando datos de Meta Ads Manager</p>
+          <p className="text-xs text-gray-500 mb-4">Exporta el CSV desde Ads Manager con las columnas: Campaña, Conjunto, Anuncio, Fecha, Impresiones, Alcance, Clics, CTR, CPC, Gasto, Resultados, Frecuencia, Plataforma/Ubicación, ID Creativo</p>
+          <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-600">
+            {['CTR por campaña', 'CPC vs resultado', 'Frecuencia de saturación', 'Mejor plataforma', 'Retorno por creativo'].map(t => (
+              <span key={t} className="bg-gray-800 px-2 py-1 rounded-full">{t}</span>
+            ))}
+          </div>
         </div>
       </div>
 
