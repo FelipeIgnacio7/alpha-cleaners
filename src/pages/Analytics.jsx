@@ -470,52 +470,68 @@ export default function Analytics() {
       }
     }
 
-    // Qué promover: compare last two months by service
+    // ── Comparación acumulada: días 1–hoy del mes actual vs mismos días del mes anterior ──
     const mCurKey  = monthKeys[monthKeys.length - 1]
     const mPrevKey = monthKeys[monthKeys.length - 2]
+    const mCurLabel  = mCurKey  ? MONTHS_ES_FULL[parseInt(mCurKey.slice(5))  - 1] : ''
+    const mPrevLabel = mPrevKey ? MONTHS_ES_FULL[parseInt(mPrevKey.slice(5)) - 1] : ''
 
-    function svcStatsForMonth(mk) {
+    const hoyDate = new Date()
+    const hoyDia  = hoyDate.getDate()
+    const diasEnMesCur = new Date(hoyDate.getFullYear(), hoyDate.getMonth() + 1, 0).getDate()
+    const semanaActual = Math.ceil(hoyDia / 7)
+
+    // Rows acumulados hasta hoy
+    const curMonthRows  = filtered.filter(t => t.fecha.slice(0, 7) === mCurKey  && parseInt(t.fecha.slice(8, 10)) <= hoyDia)
+    const prevMonthRows = filtered.filter(t => t.fecha.slice(0, 7) === mPrevKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia)
+    const prevMonthFull = filtered.filter(t => t.fecha.slice(0, 7) === mPrevKey)
+
+    const curRevAcum   = curMonthRows.reduce((s, t)  => s + Number(t.monto), 0)
+    const prevRevAcum  = prevMonthRows.reduce((s, t) => s + Number(t.monto), 0)
+    const prevFullRev  = prevMonthFull.reduce((s, t) => s + Number(t.monto), 0)
+    const curCntAcum   = curMonthRows.length
+    const prevCntAcum  = prevMonthRows.length
+    const acumRevDelta = prevRevAcum > 0 ? ((curRevAcum - prevRevAcum) / prevRevAcum) * 100 : 0
+    const acumCntDelta = prevCntAcum > 0 ? ((curCntAcum - prevCntAcum) / prevCntAcum) * 100 : 0
+
+    // Proyección por ritmo diario
+    const pace = hoyDia > 0 ? curRevAcum / hoyDia : 0
+    const forecastByPace = Math.round(pace * diasEnMesCur)
+    const forecastVsPrev = prevFullRev > 0 ? ((forecastByPace - prevFullRev) / prevFullRev) * 100 : 0
+
+    // Servicios en período acumulado (mismos días)
+    function svcStats(rows) {
       const m = {}
-      if (!mk) return m
-      filtered.filter(t => t.fecha.slice(0, 7) === mk).forEach(t => {
+      rows.forEach(t => {
         const s = (t.tipo_servicio || 'Sin datos').trim()
         if (!m[s]) m[s] = { count: 0, rev: 0 }
         m[s].count++; m[s].rev += Number(t.monto)
       })
       return m
     }
+    const svcCur  = svcStats(curMonthRows)
+    const svcPrev = svcStats(prevMonthRows)
 
-    const svcCur  = svcStatsForMonth(mCurKey)
-    const svcPrev = svcStatsForMonth(mPrevKey)
+    const svcAccumComp = [...new Set([...Object.keys(svcCur), ...Object.keys(svcPrev)])]
+      .map(name => {
+        const c = svcCur[name]  || { count: 0, rev: 0 }
+        const p = svcPrev[name] || { count: 0, rev: 0 }
+        const delta = p.count > 0 ? Math.round(((c.count - p.count) / p.count) * 100) : null
+        return { name, curCount: c.count, prevCount: p.count, ticket: c.count > 0 ? Math.round(c.rev / c.count) : 0, delta }
+      })
+      .filter(s => s.curCount >= 2 || s.prevCount >= 2)
+
+    const svcWinning = svcAccumComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
+    const svcLosing  = svcAccumComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
 
     const promoByProfitability = Object.entries(svcCur)
-      .filter(([, v]) => v.count >= 5)
-      .map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count, rev: v.rev }))
+      .filter(([, v]) => v.count >= 3)
+      .map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count }))
       .sort((a, b) => b.ticket - a.ticket)[0] || null
 
-    const promoGrowing = Object.entries(svcCur)
-      .filter(([name, v]) => svcPrev[name] && v.count >= 3)
-      .map(([name, v]) => {
-        const prev = svcPrev[name]
-        const delta = prev.count > 0 ? ((v.count - prev.count) / prev.count) * 100 : 0
-        return { name, count: v.count, delta: Math.round(delta), ticket: Math.round(v.rev / v.count) }
-      })
-      .filter(s => s.delta > 0)
-      .sort((a, b) => b.delta - a.delta)[0] || null
+    const weeklyStatus = acumRevDelta >= 5 ? 'adelante' : acumRevDelta <= -5 ? 'atras' : 'par'
 
-    const promoRescue = Object.entries(svcPrev)
-      .filter(([, v]) => v.count >= 5)
-      .map(([name, v]) => {
-        const cur = svcCur[name] || { count: 0, rev: 0 }
-        const delta = ((cur.count - v.count) / v.count) * 100
-        return { name, prevCount: v.count, curCount: cur.count, delta: Math.round(delta), ticket: Math.round(v.rev / v.count) }
-      })
-      .filter(s => s.delta < -20)
-      .sort((a, b) => a.delta - b.delta)[0] || null
-
-    const promoDecision = { byProfitability: promoByProfitability, growing: promoGrowing, rescue: promoRescue }
-
-    // Best week of month
+    // Best week of month (histórico)
     const byWeekCount = [0, 0, 0, 0, 0]
     filtered.forEach(t => {
       const day = parseInt(t.fecha.slice(8, 10))
@@ -525,24 +541,28 @@ export default function Analytics() {
     const WEEK_LABELS = ['1ª semana (1–7)', '2ª semana (8–14)', '3ª semana (15–21)', '4ª semana (22–28)', 'Fin de mes (29+)']
     const bestWeek = WEEK_LABELS[bestWeekIdx]
 
-    // 30-day forecast via linear trend on last 3 months
-    const fcastRevArr = monthKeys.slice(-4).map(k => byMonth[k]?.ingresos || 0)
-    const last3Arr = fcastRevArr.slice(-3)
-    const avgL3 = last3Arr.reduce((s, v) => s + v, 0) / (last3Arr.length || 1)
-    const trendSlope = last3Arr.length >= 2
-      ? (last3Arr[last3Arr.length - 1] - last3Arr[0]) / (last3Arr.length - 1)
-      : 0
-    const forecastNextRev  = Math.max(0, avgL3 + trendSlope)
-    const forecastLastRev  = fcastRevArr[fcastRevArr.length - 1] || 0
-    const forecastDeltaPct = forecastLastRev > 0 ? ((forecastNextRev - forecastLastRev) / forecastLastRev) * 100 : 0
-    const forecastRisk     = forecastDeltaPct < -15 ? 'alto' : forecastDeltaPct < -5 ? 'medio' : 'bajo'
-    const forecastMonthLabel = (() => {
-      if (!mCurKey) return ''
-      const [y, m] = mCurKey.split('-').map(Number)
-      const nextM = m === 12 ? 1 : m + 1
-      return MONTHS_ES_FULL[nextM - 1] + ' ' + (m === 12 ? y + 1 : y)
-    })()
-    const forecast = { nextRev: forecastNextRev, lastRev: forecastLastRev, deltaPct: forecastDeltaPct, risk: forecastRisk, monthLabel: forecastMonthLabel }
+    const accumComparison = {
+      hoyDia, semanaActual, diasEnMesCur,
+      curRevAcum, prevRevAcum, acumRevDelta, acumCntDelta,
+      curCntAcum, prevCntAcum,
+      pace, forecastByPace, forecastVsPrev, prevFullRev,
+      svcWinning, svcLosing, svcAccumComp,
+      weeklyStatus, bestWeek,
+      mCurLabel, mPrevLabel,
+    }
+
+    const promoDecision = {
+      byProfitability: promoByProfitability,
+      growing: svcWinning[0] || null,
+      rescue: svcLosing[0] ? { ...svcLosing[0], prevCount: svcLosing[0].prevCount, curCount: svcLosing[0].curCount } : null,
+    }
+
+    const forecast = {
+      nextRev: forecastByPace, lastRev: prevFullRev,
+      deltaPct: forecastVsPrev,
+      risk: forecastVsPrev < -15 ? 'alto' : forecastVsPrev < -5 ? 'medio' : 'bajo',
+      monthLabel: mCurLabel,
+    }
 
     return {
       totalIngresos, ticketProm, totalCount: filtered.length,
@@ -558,7 +578,7 @@ export default function Analytics() {
       bestTicketService, fontovaMoM, curicoComp, freqByMonth, latestFreq, suggestedMembership,
       freqByMonthFontova, latestFreqFontova, suggestedMembershipFontova,
       freqByMonthCurico, latestFreqCurico, suggestedMembershipCurico,
-      rfmSegments, promoDecision, bestWeek, forecast,
+      rfmSegments, promoDecision, bestWeek, forecast, accumComparison,
       mCurLabel: mCurKey ? MONTHS_ES_FULL[parseInt(mCurKey.slice(5)) - 1] + ' ' + mCurKey.slice(0, 4) : '',
     }
   }, [filtered])
@@ -942,9 +962,121 @@ export default function Analytics() {
           <Megaphone size={16} className="text-violet-400" />
           <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
         </div>
-        <p className="text-xs text-gray-500 mb-5">Basado en datos reales · {a.mCurLabel}</p>
+        <p className="text-xs text-gray-500 mb-5">Comparación acumulada día a día · {a.accumComparison.mCurLabel} vs {a.accumComparison.mPrevLabel}</p>
 
-        {/* A. Qué promover esta semana */}
+        {/* A. Pulso del mes */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Pulso del mes (días 1–{a.accumComparison.hoyDia} · semana {a.accumComparison.semanaActual} de {Math.ceil(a.accumComparison.diasEnMesCur / 7)})</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Revenue acumulado */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">Ingresos acumulados (días 1–{a.accumComparison.hoyDia})</p>
+              <div className="flex items-end gap-3 mb-2">
+                <div>
+                  <p className="text-[10px] text-gray-500 mb-0.5">{a.accumComparison.mCurLabel}</p>
+                  <p className="text-2xl font-bold text-white">{fmtCLP(a.accumComparison.curRevAcum)}</p>
+                </div>
+                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${a.accumComparison.acumRevDelta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {a.accumComparison.acumRevDelta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {a.accumComparison.acumRevDelta >= 0 ? '+' : ''}{a.accumComparison.acumRevDelta.toFixed(1)}%
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">{a.accumComparison.mPrevLabel} mismo período: {fmtCLP(a.accumComparison.prevRevAcum)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {a.accumComparison.curCntAcum} vs {a.accumComparison.prevCntAcum} servicios
+                {' '}({a.accumComparison.acumCntDelta >= 0 ? '+' : ''}{a.accumComparison.acumCntDelta.toFixed(0)}%)
+              </p>
+            </div>
+
+            {/* Proyección al cierre */}
+            <div className="border-l border-gray-800 pl-6">
+              <p className="text-xs text-gray-400 mb-2">Proyección al cierre del mes</p>
+              <div className="flex items-end gap-3 mb-2">
+                <p className="text-2xl font-bold text-white">{fmtCLP(a.accumComparison.forecastByPace)}</p>
+                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${a.accumComparison.forecastVsPrev >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {a.accumComparison.forecastVsPrev >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {a.accumComparison.forecastVsPrev >= 0 ? '+' : ''}{a.accumComparison.forecastVsPrev.toFixed(1)}%
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">{a.accumComparison.mPrevLabel} cerró en: {fmtCLP(a.accumComparison.prevFullRev)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Ritmo: {fmtCLP(Math.round(a.accumComparison.pace))}/día · {a.accumComparison.diasEnMesCur - a.accumComparison.hoyDia} días restantes</p>
+            </div>
+
+            {/* Estado semanal */}
+            <div className="border-l border-gray-800 pl-6">
+              <p className="text-xs text-gray-400 mb-2">Estado esta semana</p>
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold mb-3 ${
+                a.accumComparison.weeklyStatus === 'adelante' ? 'bg-green-500/15 text-green-300' :
+                a.accumComparison.weeklyStatus === 'atras' ? 'bg-rose-500/15 text-rose-300' :
+                'bg-gray-700 text-gray-300'
+              }`}>
+                {a.accumComparison.weeklyStatus === 'adelante' ? <TrendingUp size={14} /> : a.accumComparison.weeklyStatus === 'atras' ? <TrendingDown size={14} /> : <Activity size={14} />}
+                {a.accumComparison.weeklyStatus === 'adelante' ? 'Adelante' : a.accumComparison.weeklyStatus === 'atras' ? 'Atrás' : 'Parejo'}
+                {' '}vs {a.accumComparison.mPrevLabel}
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                {a.accumComparison.weeklyStatus === 'adelante'
+                  ? `Vas ${Math.abs(a.accumComparison.acumRevDelta).toFixed(0)}% sobre ${a.accumComparison.mPrevLabel} a este punto. Potencia lo que está funcionando y mantén el ritmo de ads.`
+                  : a.accumComparison.weeklyStatus === 'atras'
+                  ? `Vas ${Math.abs(a.accumComparison.acumRevDelta).toFixed(0)}% bajo ${a.accumComparison.mPrevLabel}. Activar reactivación de clientes y empujar el servicio más rentable.`
+                  : `Vas parejo con ${a.accumComparison.mPrevLabel} — diferencia de ${Math.abs(a.accumComparison.curCntAcum - a.accumComparison.prevCntAcum)} autos. Una buena semana inclina la balanza.`
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Servicios ganadores y rezagados */}
+        {(a.accumComparison.svcWinning.length > 0 || a.accumComparison.svcLosing.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            {a.accumComparison.svcWinning.length > 0 && (
+              <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4">
+                <p className="text-xs text-green-400 font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <TrendingUp size={12} /> Servicios ganadores vs {a.accumComparison.mPrevLabel}
+                </p>
+                <div className="space-y-2.5">
+                  {a.accumComparison.svcWinning.map(s => (
+                    <div key={s.name} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-200 font-medium">{s.name}</p>
+                        <p className="text-[10px] text-gray-500">{s.curCount} servicios · {fmtCLP(s.ticket)} ticket prom</p>
+                      </div>
+                      <span className="text-xs font-bold text-green-400">+{s.delta}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-green-500/15 mt-3 pt-3">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Acción</p>
+                  <p className="text-xs text-gray-300">Escalar presupuesto de ads en estos servicios. Crear contenido específico mostrando resultados.</p>
+                </div>
+              </div>
+            )}
+            {a.accumComparison.svcLosing.length > 0 && (
+              <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-4">
+                <p className="text-xs text-rose-400 font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <TrendingDown size={12} /> Servicios rezagados vs {a.accumComparison.mPrevLabel}
+                </p>
+                <div className="space-y-2.5">
+                  {a.accumComparison.svcLosing.map(s => (
+                    <div key={s.name} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-200 font-medium">{s.name}</p>
+                        <p className="text-[10px] text-gray-500">{s.prevCount}→{s.curCount} servicios · {fmtCLP(s.ticket)} ticket prom</p>
+                      </div>
+                      <span className="text-xs font-bold text-rose-400">{s.delta}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-rose-500/15 mt-3 pt-3">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Acción</p>
+                  <p className="text-xs text-gray-300">WhatsApp a clientes que usaron estos servicios el mes pasado. Oferta de reactivación con descuento puntual.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* B. Qué promover esta semana */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Qué promover esta semana</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {a.promoDecision.byProfitability ? (
@@ -952,7 +1084,7 @@ export default function Analytics() {
               icon={Star}
               accent="amber"
               title={`Rentabilidad: ${a.promoDecision.byProfitability.name}`}
-              body={`El servicio de mayor ticket en ${a.mCurLabel} con ${a.promoDecision.byProfitability.count} unidades y ${fmtCLP(a.promoDecision.byProfitability.ticket)} promedio. Margen alto, ya tiene demanda probada.`}
+              body={`Mayor ticket promedio en los primeros ${a.accumComparison.hoyDia} días de ${a.accumComparison.mCurLabel}: ${fmtCLP(a.promoDecision.byProfitability.ticket)} con ${a.promoDecision.byProfitability.count} unidades. Margen alto, demanda ya probada.`}
               accion="Destacar en perfil de Instagram y stories. Subir foto del resultado."
               prioridad="Alta"
               canal="Instagram Stories + Google My Business"
@@ -969,7 +1101,7 @@ export default function Analytics() {
               icon={TrendingUp}
               accent="green"
               title={`Demanda creciente: ${a.promoDecision.growing.name}`}
-              body={`Creció +${a.promoDecision.growing.delta}% vs mes anterior (${a.promoDecision.growing.count} servicios). Momentum alcista — amplificar ahora captura clientes en el momento de mayor interés.`}
+              body={`Creció +${a.promoDecision.growing.delta}% vs mismo período de ${a.accumComparison.mPrevLabel} (${a.promoDecision.growing.curCount} vs ${a.promoDecision.growing.prevCount} servicios). Momentum alcista — amplificar ahora captura clientes en el pico de interés.`}
               accion="Lanzar anuncio pagado en Meta apuntando a radio 5km del local."
               prioridad="Alta"
               canal="Facebook + Instagram Ads"
@@ -986,7 +1118,7 @@ export default function Analytics() {
               icon={AlertTriangle}
               accent="rose"
               title={`Rescatar caída: ${a.promoDecision.rescue.name}`}
-              body={`Cayó ${a.promoDecision.rescue.delta}% vs mes anterior (de ${a.promoDecision.rescue.prevCount} a ${a.promoDecision.rescue.curCount} servicios). Si tenía demanda, hay clientes que dejaron de venir — reactivarlos es más barato que adquirir nuevos.`}
+              body={`Cayó ${a.promoDecision.rescue.delta}% vs mismo período de ${a.accumComparison.mPrevLabel} (de ${a.promoDecision.rescue.prevCount} a ${a.promoDecision.rescue.curCount} servicios). Hay clientes con historial — reactivarlos cuesta menos que captar nuevos.`}
               accion="WhatsApp a clientes que lo usaron antes pero no este mes."
               prioridad="Media"
               canal="WhatsApp Business + Reels"
