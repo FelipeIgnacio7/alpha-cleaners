@@ -157,6 +157,7 @@ export default function Analytics() {
   const [txns, setTxns] = useState([])
   const [loading, setLoading] = useState(true)
   const [local, setLocal] = useState('all')
+  const [intelMonth, setIntelMonth] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -583,6 +584,64 @@ export default function Analytics() {
     }
   }, [filtered])
 
+  const selectedAccum = useMemo(() => {
+    if (!analytics || !filtered.length) return null
+    const { monthKeys } = analytics
+    const chosenKey = intelMonth ?? monthKeys[monthKeys.length - 1]
+    const chosenIdx = monthKeys.indexOf(chosenKey)
+    if (chosenIdx < 0) return null
+    const prevKey = chosenIdx > 0 ? monthKeys[chosenIdx - 1] : null
+    const mCurLabel  = MONTHS_ES_FULL[parseInt(chosenKey.slice(5)) - 1]
+    const mPrevLabel = prevKey ? MONTHS_ES_FULL[parseInt(prevKey.slice(5)) - 1] : ''
+    const now = new Date()
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const isCurrentMonth = chosenKey === todayKey
+    const chosenYear  = parseInt(chosenKey.slice(0, 4))
+    const chosenMonthN = parseInt(chosenKey.slice(5))
+    const diasEnMesCur = new Date(chosenYear, chosenMonthN, 0).getDate()
+    const hoyDia = isCurrentMonth ? now.getDate() : diasEnMesCur
+    const semanaActual = Math.ceil(hoyDia / 7)
+    const curRows  = filtered.filter(t => t.fecha.slice(0, 7) === chosenKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia)
+    const prevRows = prevKey ? filtered.filter(t => t.fecha.slice(0, 7) === prevKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia) : []
+    const prevFull = prevKey ? filtered.filter(t => t.fecha.slice(0, 7) === prevKey) : []
+    const curRevAcum   = curRows.reduce((s, t) => s + Number(t.monto), 0)
+    const prevRevAcum  = prevRows.reduce((s, t) => s + Number(t.monto), 0)
+    const prevFullRev  = prevFull.reduce((s, t) => s + Number(t.monto), 0)
+    const curCntAcum   = curRows.length
+    const prevCntAcum  = prevRows.length
+    const acumRevDelta = prevRevAcum > 0 ? ((curRevAcum - prevRevAcum) / prevRevAcum) * 100 : 0
+    const acumCntDelta = prevCntAcum > 0 ? ((curCntAcum - prevCntAcum) / prevCntAcum) * 100 : 0
+    const pace = hoyDia > 0 ? curRevAcum / hoyDia : 0
+    const forecastByPace = Math.round(pace * diasEnMesCur)
+    const forecastVsPrev = prevFullRev > 0 ? ((forecastByPace - prevFullRev) / prevFullRev) * 100 : 0
+    const svcSt = rows => {
+      const m = {}
+      rows.forEach(t => { const s = (t.tipo_servicio || 'Sin datos').trim(); if (!m[s]) m[s] = { count: 0, rev: 0 }; m[s].count++; m[s].rev += Number(t.monto) })
+      return m
+    }
+    const svcCur  = svcSt(curRows)
+    const svcPrev = svcSt(prevRows)
+    const svcComp = [...new Set([...Object.keys(svcCur), ...Object.keys(svcPrev)])]
+      .map(name => {
+        const c = svcCur[name] || { count: 0, rev: 0 }; const p = svcPrev[name] || { count: 0, rev: 0 }
+        const delta = p.count > 0 ? Math.round(((c.count - p.count) / p.count) * 100) : null
+        return { name, curCount: c.count, prevCount: p.count, ticket: c.count > 0 ? Math.round(c.rev / c.count) : 0, delta }
+      })
+      .filter(s => s.curCount >= 2 || s.prevCount >= 2)
+    const svcWinning = svcComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
+    const svcLosing  = svcComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
+    const promoByProfit = Object.entries(svcCur).filter(([, v]) => v.count >= 3).map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count })).sort((a, b) => b.ticket - a.ticket)[0] || null
+    const weeklyStatus = acumRevDelta >= 5 ? 'adelante' : acumRevDelta <= -5 ? 'atras' : 'par'
+    return {
+      hoyDia, semanaActual, diasEnMesCur, mCurLabel, mPrevLabel, isCurrentMonth,
+      curRevAcum, prevRevAcum, acumRevDelta, acumCntDelta, curCntAcum, prevCntAcum,
+      pace, forecastByPace, forecastVsPrev, prevFullRev,
+      svcWinning, svcLosing, weeklyStatus,
+      promoDecision: { byProfitability: promoByProfit, growing: svcWinning[0] || null, rescue: svcLosing[0] || null },
+      forecast: { nextRev: forecastByPace, lastRev: prevFullRev, deltaPct: forecastVsPrev, risk: forecastVsPrev < -15 ? 'alto' : forecastVsPrev < -5 ? 'medio' : 'bajo', monthLabel: mCurLabel },
+    }
+  }, [filtered, analytics, intelMonth])
+
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <div className="text-center">
@@ -595,6 +654,7 @@ export default function Analytics() {
   if (!analytics) return <div className="p-8 text-gray-400">Sin datos</div>
 
   const a = analytics
+  const ac = selectedAccum
 
   // Chart data
   const monthlyChartData = {
@@ -958,33 +1018,46 @@ export default function Analytics() {
 
       {/* ── INTELIGENCIA PUBLICITARIA ── */}
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Megaphone size={16} className="text-violet-400" />
-          <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Megaphone size={16} className="text-violet-400" />
+            <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
+          </div>
+          <select
+            value={intelMonth ?? a.monthKeys.at(-1) ?? ''}
+            onChange={e => setIntelMonth(e.target.value || null)}
+            className="text-xs bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            {[...a.monthKeys].reverse().map(key => (
+              <option key={key} value={key}>
+                {MONTHS_ES_FULL[parseInt(key.slice(5)) - 1]} {key.slice(0, 4)}
+              </option>
+            ))}
+          </select>
         </div>
-        <p className="text-xs text-gray-500 mb-5">Comparación acumulada día a día · {a.accumComparison.mCurLabel} vs {a.accumComparison.mPrevLabel}</p>
+        {ac && <p className="text-xs text-gray-500 mb-5">{ac.isCurrentMonth ? 'Comparación acumulada día a día' : 'Mes completo'} · {ac.mCurLabel} vs {ac.mPrevLabel}</p>}
 
         {/* A. Pulso del mes */}
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Pulso del mes (días 1–{a.accumComparison.hoyDia} · semana {a.accumComparison.semanaActual} de {Math.ceil(a.accumComparison.diasEnMesCur / 7)})</h3>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Pulso del mes (días 1–{ac.hoyDia} · semana {ac.semanaActual} de {Math.ceil(ac.diasEnMesCur / 7)})</h3>
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Revenue acumulado */}
             <div>
-              <p className="text-xs text-gray-400 mb-2">Ingresos acumulados (días 1–{a.accumComparison.hoyDia})</p>
+              <p className="text-xs text-gray-400 mb-2">Ingresos acumulados (días 1–{ac.hoyDia})</p>
               <div className="flex items-end gap-3 mb-2">
                 <div>
-                  <p className="text-[10px] text-gray-500 mb-0.5">{a.accumComparison.mCurLabel}</p>
-                  <p className="text-2xl font-bold text-white">{fmtCLP(a.accumComparison.curRevAcum)}</p>
+                  <p className="text-[10px] text-gray-500 mb-0.5">{ac.mCurLabel}</p>
+                  <p className="text-2xl font-bold text-white">{fmtCLP(ac.curRevAcum)}</p>
                 </div>
-                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${a.accumComparison.acumRevDelta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
-                  {a.accumComparison.acumRevDelta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                  {a.accumComparison.acumRevDelta >= 0 ? '+' : ''}{a.accumComparison.acumRevDelta.toFixed(1)}%
+                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${ac.acumRevDelta >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {ac.acumRevDelta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {ac.acumRevDelta >= 0 ? '+' : ''}{ac.acumRevDelta.toFixed(1)}%
                 </div>
               </div>
-              <p className="text-xs text-gray-500">{a.accumComparison.mPrevLabel} mismo período: {fmtCLP(a.accumComparison.prevRevAcum)}</p>
+              <p className="text-xs text-gray-500">{ac.mPrevLabel} mismo período: {fmtCLP(ac.prevRevAcum)}</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                {a.accumComparison.curCntAcum} vs {a.accumComparison.prevCntAcum} servicios
-                {' '}({a.accumComparison.acumCntDelta >= 0 ? '+' : ''}{a.accumComparison.acumCntDelta.toFixed(0)}%)
+                {ac.curCntAcum} vs {ac.prevCntAcum} servicios
+                {' '}({ac.acumCntDelta >= 0 ? '+' : ''}{ac.acumCntDelta.toFixed(0)}%)
               </p>
             </div>
 
@@ -992,34 +1065,34 @@ export default function Analytics() {
             <div className="border-l border-gray-800 pl-6">
               <p className="text-xs text-gray-400 mb-2">Proyección al cierre del mes</p>
               <div className="flex items-end gap-3 mb-2">
-                <p className="text-2xl font-bold text-white">{fmtCLP(a.accumComparison.forecastByPace)}</p>
-                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${a.accumComparison.forecastVsPrev >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
-                  {a.accumComparison.forecastVsPrev >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                  {a.accumComparison.forecastVsPrev >= 0 ? '+' : ''}{a.accumComparison.forecastVsPrev.toFixed(1)}%
+                <p className="text-2xl font-bold text-white">{fmtCLP(ac.forecastByPace)}</p>
+                <div className={`flex items-center gap-1 mb-1 text-sm font-semibold ${ac.forecastVsPrev >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {ac.forecastVsPrev >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {ac.forecastVsPrev >= 0 ? '+' : ''}{ac.forecastVsPrev.toFixed(1)}%
                 </div>
               </div>
-              <p className="text-xs text-gray-500">{a.accumComparison.mPrevLabel} cerró en: {fmtCLP(a.accumComparison.prevFullRev)}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Ritmo: {fmtCLP(Math.round(a.accumComparison.pace))}/día · {a.accumComparison.diasEnMesCur - a.accumComparison.hoyDia} días restantes</p>
+              <p className="text-xs text-gray-500">{ac.mPrevLabel} cerró en: {fmtCLP(ac.prevFullRev)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Ritmo: {fmtCLP(Math.round(ac.pace))}/día · {ac.diasEnMesCur - ac.hoyDia} días restantes</p>
             </div>
 
             {/* Estado semanal */}
             <div className="border-l border-gray-800 pl-6">
               <p className="text-xs text-gray-400 mb-2">Estado esta semana</p>
               <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold mb-3 ${
-                a.accumComparison.weeklyStatus === 'adelante' ? 'bg-green-500/15 text-green-300' :
-                a.accumComparison.weeklyStatus === 'atras' ? 'bg-rose-500/15 text-rose-300' :
+                ac.weeklyStatus === 'adelante' ? 'bg-green-500/15 text-green-300' :
+                ac.weeklyStatus === 'atras' ? 'bg-rose-500/15 text-rose-300' :
                 'bg-gray-700 text-gray-300'
               }`}>
-                {a.accumComparison.weeklyStatus === 'adelante' ? <TrendingUp size={14} /> : a.accumComparison.weeklyStatus === 'atras' ? <TrendingDown size={14} /> : <Activity size={14} />}
-                {a.accumComparison.weeklyStatus === 'adelante' ? 'Adelante' : a.accumComparison.weeklyStatus === 'atras' ? 'Atrás' : 'Parejo'}
-                {' '}vs {a.accumComparison.mPrevLabel}
+                {ac.weeklyStatus === 'adelante' ? <TrendingUp size={14} /> : ac.weeklyStatus === 'atras' ? <TrendingDown size={14} /> : <Activity size={14} />}
+                {ac.weeklyStatus === 'adelante' ? 'Adelante' : ac.weeklyStatus === 'atras' ? 'Atrás' : 'Parejo'}
+                {' '}vs {ac.mPrevLabel}
               </div>
               <p className="text-xs text-gray-300 leading-relaxed">
-                {a.accumComparison.weeklyStatus === 'adelante'
-                  ? `Vas ${Math.abs(a.accumComparison.acumRevDelta).toFixed(0)}% sobre ${a.accumComparison.mPrevLabel} a este punto. Potencia lo que está funcionando y mantén el ritmo de ads.`
-                  : a.accumComparison.weeklyStatus === 'atras'
-                  ? `Vas ${Math.abs(a.accumComparison.acumRevDelta).toFixed(0)}% bajo ${a.accumComparison.mPrevLabel}. Activar reactivación de clientes y empujar el servicio más rentable.`
-                  : `Vas parejo con ${a.accumComparison.mPrevLabel} — diferencia de ${Math.abs(a.accumComparison.curCntAcum - a.accumComparison.prevCntAcum)} autos. Una buena semana inclina la balanza.`
+                {ac.weeklyStatus === 'adelante'
+                  ? `Vas ${Math.abs(ac.acumRevDelta).toFixed(0)}% sobre ${ac.mPrevLabel} a este punto. Potencia lo que está funcionando y mantén el ritmo de ads.`
+                  : ac.weeklyStatus === 'atras'
+                  ? `Vas ${Math.abs(ac.acumRevDelta).toFixed(0)}% bajo ${ac.mPrevLabel}. Activar reactivación de clientes y empujar el servicio más rentable.`
+                  : `Vas parejo con ${ac.mPrevLabel} — diferencia de ${Math.abs(ac.curCntAcum - ac.prevCntAcum)} autos. Una buena semana inclina la balanza.`
                 }
               </p>
             </div>
@@ -1027,15 +1100,15 @@ export default function Analytics() {
         </div>
 
         {/* Servicios ganadores y rezagados */}
-        {(a.accumComparison.svcWinning.length > 0 || a.accumComparison.svcLosing.length > 0) && (
+        {(ac.svcWinning.length > 0 || ac.svcLosing.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-            {a.accumComparison.svcWinning.length > 0 && (
+            {ac.svcWinning.length > 0 && (
               <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4">
                 <p className="text-xs text-green-400 font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                  <TrendingUp size={12} /> Servicios ganadores vs {a.accumComparison.mPrevLabel}
+                  <TrendingUp size={12} /> Servicios ganadores vs {ac.mPrevLabel}
                 </p>
                 <div className="space-y-2.5">
-                  {a.accumComparison.svcWinning.map(s => (
+                  {ac.svcWinning.map(s => (
                     <div key={s.name} className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-gray-200 font-medium">{s.name}</p>
@@ -1051,13 +1124,13 @@ export default function Analytics() {
                 </div>
               </div>
             )}
-            {a.accumComparison.svcLosing.length > 0 && (
+            {ac.svcLosing.length > 0 && (
               <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-4">
                 <p className="text-xs text-rose-400 font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                  <TrendingDown size={12} /> Servicios rezagados vs {a.accumComparison.mPrevLabel}
+                  <TrendingDown size={12} /> Servicios rezagados vs {ac.mPrevLabel}
                 </p>
                 <div className="space-y-2.5">
-                  {a.accumComparison.svcLosing.map(s => (
+                  {ac.svcLosing.map(s => (
                     <div key={s.name} className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-gray-200 font-medium">{s.name}</p>
@@ -1079,16 +1152,16 @@ export default function Analytics() {
         {/* B. Qué promover esta semana */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Qué promover esta semana</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {a.promoDecision.byProfitability ? (
+          {ac.promoDecision.byProfitability ? (
             <AdInsightCard
               icon={Star}
               accent="amber"
-              title={`Rentabilidad: ${a.promoDecision.byProfitability.name}`}
-              body={`Mayor ticket promedio en los primeros ${a.accumComparison.hoyDia} días de ${a.accumComparison.mCurLabel}: ${fmtCLP(a.promoDecision.byProfitability.ticket)} con ${a.promoDecision.byProfitability.count} unidades. Margen alto, demanda ya probada.`}
+              title={`Rentabilidad: ${ac.promoDecision.byProfitability.name}`}
+              body={`Mayor ticket promedio en los primeros ${ac.hoyDia} días de ${ac.mCurLabel}: ${fmtCLP(ac.promoDecision.byProfitability.ticket)} con ${ac.promoDecision.byProfitability.count} unidades. Margen alto, demanda ya probada.`}
               accion="Destacar en perfil de Instagram y stories. Subir foto del resultado."
               prioridad="Alta"
               canal="Instagram Stories + Google My Business"
-              copy={`"¿Sabías que nuestro ${a.promoDecision.byProfitability.name} deja tu auto como nuevo? Pide hora hoy mismo 🚗✨"`}
+              copy={`"¿Sabías que nuestro ${ac.promoDecision.byProfitability.name} deja tu auto como nuevo? Pide hora hoy mismo 🚗✨"`}
             />
           ) : (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
@@ -1096,16 +1169,16 @@ export default function Analytics() {
             </div>
           )}
 
-          {a.promoDecision.growing ? (
+          {ac.promoDecision.growing ? (
             <AdInsightCard
               icon={TrendingUp}
               accent="green"
-              title={`Demanda creciente: ${a.promoDecision.growing.name}`}
-              body={`Creció +${a.promoDecision.growing.delta}% vs mismo período de ${a.accumComparison.mPrevLabel} (${a.promoDecision.growing.curCount} vs ${a.promoDecision.growing.prevCount} servicios). Momentum alcista — amplificar ahora captura clientes en el pico de interés.`}
+              title={`Demanda creciente: ${ac.promoDecision.growing.name}`}
+              body={`Creció +${ac.promoDecision.growing.delta}% vs mismo período de ${ac.mPrevLabel} (${ac.promoDecision.growing.curCount} vs ${ac.promoDecision.growing.prevCount} servicios). Momentum alcista — amplificar ahora captura clientes en el pico de interés.`}
               accion="Lanzar anuncio pagado en Meta apuntando a radio 5km del local."
               prioridad="Alta"
               canal="Facebook + Instagram Ads"
-              copy={`"${a.promoDecision.growing.name} en Alpha Cleaners — ${fmtCLP(a.promoDecision.growing.ticket)} y listo al instante. Reserva online 📲"`}
+              copy={`"${ac.promoDecision.growing.name} en Alpha Cleaners — ${fmtCLP(ac.promoDecision.growing.ticket)} y listo al instante. Reserva online 📲"`}
             />
           ) : (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
@@ -1113,16 +1186,16 @@ export default function Analytics() {
             </div>
           )}
 
-          {a.promoDecision.rescue ? (
+          {ac.promoDecision.rescue ? (
             <AdInsightCard
               icon={AlertTriangle}
               accent="rose"
-              title={`Rescatar caída: ${a.promoDecision.rescue.name}`}
-              body={`Cayó ${a.promoDecision.rescue.delta}% vs mismo período de ${a.accumComparison.mPrevLabel} (de ${a.promoDecision.rescue.prevCount} a ${a.promoDecision.rescue.curCount} servicios). Hay clientes con historial — reactivarlos cuesta menos que captar nuevos.`}
+              title={`Rescatar caída: ${ac.promoDecision.rescue.name}`}
+              body={`Cayó ${ac.promoDecision.rescue.delta}% vs mismo período de ${ac.mPrevLabel} (de ${ac.promoDecision.rescue.prevCount} a ${ac.promoDecision.rescue.curCount} servicios). Hay clientes con historial — reactivarlos cuesta menos que captar nuevos.`}
               accion="WhatsApp a clientes que lo usaron antes pero no este mes."
               prioridad="Media"
               canal="WhatsApp Business + Reels"
-              copy={`"Vuelve a darle el trato que merece a tu auto con nuestro ${a.promoDecision.rescue.name}. Esta semana con 10% OFF para clientes frecuentes 🔧"`}
+              copy={`"Vuelve a darle el trato que merece a tu auto con nuestro ${ac.promoDecision.rescue.name}. Esta semana con 10% OFF para clientes frecuentes 🔧"`}
             />
           ) : (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-center">
@@ -1255,35 +1328,35 @@ export default function Analytics() {
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <Activity size={14} className="text-violet-400" />
-              <p className="text-sm font-semibold text-white">Proyección {a.forecast.monthLabel}</p>
+              <p className="text-sm font-semibold text-white">Proyección {ac.forecast.monthLabel}</p>
             </div>
             <div className="space-y-3">
               <div className="flex items-end gap-3">
                 <div>
                   <p className="text-xs text-gray-400 mb-0.5">Proyección</p>
-                  <p className="text-2xl font-bold text-white">{fmtCLP(a.forecast.nextRev)}</p>
+                  <p className="text-2xl font-bold text-white">{fmtCLP(ac.forecast.nextRev)}</p>
                 </div>
-                <div className={`flex items-center gap-1 mb-1 text-sm font-medium ${a.forecast.deltaPct >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
-                  {a.forecast.deltaPct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                  {a.forecast.deltaPct >= 0 ? '+' : ''}{a.forecast.deltaPct.toFixed(1)}% vs mes anterior
+                <div className={`flex items-center gap-1 mb-1 text-sm font-medium ${ac.forecast.deltaPct >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                  {ac.forecast.deltaPct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {ac.forecast.deltaPct >= 0 ? '+' : ''}{ac.forecast.deltaPct.toFixed(1)}% vs mes anterior
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <p className="text-xs text-gray-400">Nivel de riesgo:</p>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  a.forecast.risk === 'alto' ? 'bg-rose-500/20 text-rose-300' :
-                  a.forecast.risk === 'medio' ? 'bg-amber-500/20 text-amber-300' :
+                  ac.forecast.risk === 'alto' ? 'bg-rose-500/20 text-rose-300' :
+                  ac.forecast.risk === 'medio' ? 'bg-amber-500/20 text-amber-300' :
                   'bg-green-500/20 text-green-300'
                 }`}>
-                  {a.forecast.risk === 'alto' ? 'Alto' : a.forecast.risk === 'medio' ? 'Medio' : 'Bajo'}
+                  {ac.forecast.risk === 'alto' ? 'Alto' : ac.forecast.risk === 'medio' ? 'Medio' : 'Bajo'}
                 </span>
               </div>
               <div className="border-t border-gray-800 pt-3 space-y-1">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide">Acción correctiva</p>
                 <p className="text-xs text-gray-300">
-                  {a.forecast.risk === 'alto'
-                    ? `Riesgo alto de caída. Activar campaña de clientes en riesgo (${a.rfmSegments.counts.atRisk} patentes) + empujar ${a.promoDecision.byProfitability?.name || 'servicio de mayor ticket'} con descuento limitado.`
-                    : a.forecast.risk === 'medio'
+                  {ac.forecast.risk === 'alto'
+                    ? `Riesgo alto de caída. Activar campaña de clientes en riesgo (${a.rfmSegments.counts.atRisk} patentes) + empujar ${ac.promoDecision.byProfitability?.name || 'servicio de mayor ticket'} con descuento limitado.`
+                    : ac.forecast.risk === 'medio'
                     ? `Tendencia moderada. Mantener ads activos la ${a.bestWeek.toLowerCase()} y reactivar ${a.rfmSegments.counts.atRisk} clientes en riesgo con WhatsApp.`
                     : `Proyección positiva. Invertir en captación de nuevos clientes (${a.rfmSegments.counts.new} nuevos este período) para consolidar el crecimiento.`
                   }
