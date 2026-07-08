@@ -35,6 +35,51 @@ function fmtCLP(n) {
   return '$' + Math.round(n).toLocaleString('es-CL')
 }
 
+// Orden canónico de servicios base (determina qué va primero cuando hay combos)
+const SVC_BASE_ORDER = [
+  'lavado full','lavado plus','lavado por fuera',
+  'lavado de motor con vapor + pulverizado','lavado de motor con vapor',
+  'lavado de chasis + ducha grafitada','membresía full','membresía simple',
+  'detailing interior','limpieza tapiz','pulido completo basico',
+  'pulido de focos + sellante','pulido por pieza','grabado de patentes',
+  'desabolladura en frio','eliminado de rayones','desbarre','alfombra',
+  'sellado ceramico','abrillantado de carrocería',
+]
+const SVC_CANONICAL = {
+  'lavado full':'Lavado full','lavado plus':'Lavado Plus',
+  'lavado por fuera':'Lavado por fuera',
+  'lavado de motor con vapor':'Lavado de motor con vapor',
+  'lavado de motor con vapor + pulverizado':'Lavado de motor con vapor + pulverizado',
+  'lavado de chasis + ducha grafitada':'Lavado de chasis + ducha grafitada',
+  'membresía full':'Membresía Full','membresía simple':'Membresía simple',
+  'detailing interior':'Detailing interior','limpieza tapiz':'Limpieza Tapiz',
+  'pulido completo basico':'Pulido completo basico',
+  'pulido de focos + sellante':'Pulido de focos + sellante',
+  'pulido por pieza':'Pulido por pieza','grabado de patentes':'Grabado de patentes',
+  'desabolladura en frio':'Desabolladura en frio','desbarre':'Desbarre',
+  'alfombra':'Alfombra','eliminado de rayones':'Eliminado de rayones',
+  'sellado ceramico':'Sellado ceramico','abrillantado de carrocería':'Abrillantado de carrocería',
+  'bebestible':'Bebestible','bebida caliente':'Bebida caliente',
+  'pino aromatico':'Pino aromatico','aromatizante':'Aromatizante',
+  'aromatizante little joe':'Aromatizante Little Joe',
+  'cera carnauba':'Cera carnauba','cera aerosol':'Cera aerosol','cera sonax':'Cera Sonax',
+  'plumillas':'Plumillas','pelo extra':'Pelo extra',
+  'limpia parabrisa':'Limpia parabrisa',
+  'descontaminación de ductos de aire':'Descontaminación de ductos de aire',
+}
+function normalizeServicio(raw) {
+  if (!raw) return 'Sin datos'
+  const capFirst = s => s.charAt(0).toUpperCase() + s.slice(1)
+  const parts = raw.split(/\s*\|\s*/).map(p => p.trim().toLowerCase()).filter(Boolean)
+  const seen = new Set()
+  const unique = parts.filter(p => !seen.has(p) && seen.add(p))
+  unique.sort((a, b) => {
+    const ia = SVC_BASE_ORDER.indexOf(a), ib = SVC_BASE_ORDER.indexOf(b)
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib)
+  })
+  return unique.map(p => SVC_CANONICAL[p] || capFirst(p)).join(' | ')
+}
+
 function StatCard({ icon: Icon, label, value, sub, color = 'blue', trend }) {
   const colors = {
     blue: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
@@ -225,7 +270,7 @@ export default function Analytics() {
     // Services
     const byService = {}
     filtered.forEach(t => {
-      const svc = t.tipo_servicio || 'Sin datos'
+      const svc = normalizeServicio(t.tipo_servicio)
       if (!byService[svc]) byService[svc] = { count: 0, ingresos: 0 }
       byService[svc].count++
       byService[svc].ingresos += Number(t.monto)
@@ -300,7 +345,7 @@ export default function Analytics() {
       const svcMap = {}
       const dowMap = Array(7).fill(null).map(() => ({ count: 0 }))
       rows.forEach(t => {
-        const s = (t.tipo_servicio || 'Sin datos').trim()
+        const s = normalizeServicio(t.tipo_servicio)
         if (!svcMap[s]) svcMap[s] = { count: 0, ingresos: 0 }
         svcMap[s].count++; svcMap[s].ingresos += Number(t.monto)
         const [y, mo, d] = t.fecha.split('-')
@@ -504,7 +549,7 @@ export default function Analytics() {
     function svcStats(rows) {
       const m = {}
       rows.forEach(t => {
-        const s = (t.tipo_servicio || 'Sin datos').trim()
+        const s = normalizeServicio(t.tipo_servicio)
         if (!m[s]) m[s] = { count: 0, rev: 0 }
         m[s].count++; m[s].rev += Number(t.monto)
       })
@@ -616,7 +661,7 @@ export default function Analytics() {
     const forecastVsPrev = prevFullRev > 0 ? ((forecastByPace - prevFullRev) / prevFullRev) * 100 : 0
     const svcSt = rows => {
       const m = {}
-      rows.forEach(t => { const s = (t.tipo_servicio || 'Sin datos').trim(); if (!m[s]) m[s] = { count: 0, rev: 0 }; m[s].count++; m[s].rev += Number(t.monto) })
+      rows.forEach(t => { const s = normalizeServicio(t.tipo_servicio); if (!m[s]) m[s] = { count: 0, rev: 0 }; m[s].count++; m[s].rev += Number(t.monto) })
       return m
     }
     const svcCur  = svcSt(curRows)
