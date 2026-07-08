@@ -626,6 +626,29 @@ export default function Analytics() {
       freqByMonthCurico, latestFreqCurico, suggestedMembershipCurico,
       rfmSegments, promoDecision, bestWeek, forecast, accumComparison,
       mCurLabel: mCurKey ? MONTHS_ES_FULL[parseInt(mCurKey.slice(5)) - 1] + ' ' + mCurKey.slice(0, 4) : '',
+
+      // Candidatos a membresía: 3+ visitas este año, sin membresía activa
+      membershipCandidates: (() => {
+        const curYear = new Date().getFullYear().toString()
+        const byP = {}
+        filtered.forEach(t => {
+          if (!t.patente) return
+          const p = t.patente.trim().toUpperCase().replace(/\s+/g, '')
+          if (!t.fecha.startsWith(curYear)) return
+          if (!byP[p]) byP[p] = { visits: 0, total: 0, hasMembership: false, lastDate: '' }
+          byP[p].visits++
+          byP[p].total += Number(t.monto)
+          if ((t.tipo_servicio || '').toLowerCase().includes('membres')) byP[p].hasMembership = true
+          if (t.fecha > byP[p].lastDate) byP[p].lastDate = t.fecha
+        })
+        return Object.entries(byP)
+          .filter(([, d]) => d.visits >= 3 && !d.hasMembership)
+          .map(([pat, d]) => {
+            const avgT = Math.round(d.total / d.visits)
+            return { pat, visits: d.visits, avgTicket: avgT, total: d.total, lastDate: d.lastDate, mbRec: avgT >= 18000 ? 'Full' : 'Simple' }
+          })
+          .sort((a, b) => b.visits - a.visits)
+      })(),
     }
   }, [filtered])
 
@@ -1335,7 +1358,90 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* C. Timing y Forecast */}
+        {/* C. Candidatos a Membresía */}
+        {a.membershipCandidates.length > 0 && (
+          <>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              Candidatos a Membresía — {new Date().getFullYear()}
+            </h3>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-8">
+              {/* Resumen */}
+              <div className="flex flex-wrap gap-4 mb-5 pb-4 border-b border-gray-800">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Total candidatos</p>
+                  <p className="text-2xl font-bold text-white">{a.membershipCandidates.length}</p>
+                  <p className="text-xs text-gray-500">3+ visitas sin membresía</p>
+                </div>
+                <div className="border-l border-gray-800 pl-4">
+                  <p className="text-xs text-gray-500 mb-0.5">Frecuentes (5+ visitas)</p>
+                  <p className="text-2xl font-bold text-amber-400">{a.membershipCandidates.filter(c => c.visits >= 5).length}</p>
+                  <p className="text-xs text-gray-500">prioridad máxima</p>
+                </div>
+                <div className="border-l border-gray-800 pl-4">
+                  <p className="text-xs text-gray-500 mb-0.5">Potencial Full</p>
+                  <p className="text-2xl font-bold text-violet-400">{a.membershipCandidates.filter(c => c.mbRec === 'Full').length}</p>
+                  <p className="text-xs text-gray-500">ticket prom ≥ $18.000</p>
+                </div>
+                <div className="border-l border-gray-800 pl-4">
+                  <p className="text-xs text-gray-500 mb-0.5">Potencial Simple</p>
+                  <p className="text-2xl font-bold text-blue-400">{a.membershipCandidates.filter(c => c.mbRec === 'Simple').length}</p>
+                  <p className="text-xs text-gray-500">ticket prom &lt; $18.000</p>
+                </div>
+              </div>
+
+              {/* Tabla top 20 */}
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-2 font-medium">Top candidatos por frecuencia</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] text-gray-500 uppercase tracking-wide border-b border-gray-800">
+                      <th className="text-left pb-2 pr-4">Patente</th>
+                      <th className="text-center pb-2 pr-4">Visitas</th>
+                      <th className="text-right pb-2 pr-4">Ticket prom</th>
+                      <th className="text-right pb-2 pr-4">Total gastado</th>
+                      <th className="text-left pb-2 pr-4">Última visita</th>
+                      <th className="text-center pb-2">Recomendación</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/50">
+                    {a.membershipCandidates.slice(0, 20).map(c => (
+                      <tr key={c.pat} className="hover:bg-gray-800/30">
+                        <td className="py-2 pr-4 font-mono font-medium text-white">{c.pat}</td>
+                        <td className="py-2 pr-4 text-center">
+                          <span className={`inline-flex items-center justify-center w-7 h-5 rounded-full text-[10px] font-bold ${c.visits >= 5 ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/10 text-blue-400'}`}>
+                            {c.visits}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-right text-gray-300">{fmtCLP(c.avgTicket)}</td>
+                        <td className="py-2 pr-4 text-right text-gray-400">{fmtCLP(c.total)}</td>
+                        <td className="py-2 pr-4 text-gray-500">{c.lastDate}</td>
+                        <td className="py-2 text-center">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.mbRec === 'Full' ? 'bg-violet-500/20 text-violet-300' : 'bg-blue-500/15 text-blue-300'}`}>
+                            {c.mbRec}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {a.membershipCandidates.length > 20 && (
+                <p className="text-xs text-gray-600 mt-3 text-right">+{a.membershipCandidates.length - 20} más con 3+ visitas</p>
+              )}
+
+              {/* Acción */}
+              <div className="mt-4 pt-4 border-t border-gray-800">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Acción recomendada</p>
+                <p className="text-xs text-gray-300">
+                  Enviar WhatsApp a los {a.membershipCandidates.filter(c => c.visits >= 5).length} frecuentes primero.
+                  {' '}Copy sugerido: <span className="text-gray-400 italic">"Hola, notamos que ya llevas {'{N}'} visitas este año en Alpha Cleaners 🚗 — con tu frecuencia, la membresía te sale más barata que cada lavado por separado. ¿Te cuento cómo funciona?"</span>
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* D. Timing y Forecast */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Timing y Proyección</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           {/* Timing */}
