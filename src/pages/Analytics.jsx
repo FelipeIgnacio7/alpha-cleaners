@@ -198,11 +198,163 @@ const CHART_OPTS = {
   },
 }
 
+const WEEK_LABELS = ['1ª semana (1–7)', '2ª semana (8–14)', '3ª semana (15–21)', '4ª semana (22–28)', 'Fin de mes (29+)']
+
+// Calcula todo lo que necesita la sección "Inteligencia Publicitaria" para un
+// subconjunto de filas (una sucursal específica o todas juntas), de forma
+// independiente al filtro general del dashboard.
+function buildIntelligence(rows, chosenMonthKey) {
+  if (!rows.length) return null
+
+  const ticketProm = rows.reduce((s, t) => s + Number(t.monto), 0) / rows.length
+
+  const byMonth = {}
+  rows.forEach(t => {
+    const k = t.fecha.slice(0, 7)
+    if (!byMonth[k]) byMonth[k] = []
+    byMonth[k].push(t)
+  })
+  const monthKeys = Object.keys(byMonth).sort()
+
+  // Día y semana de mayor/menor actividad
+  const byDay = Array(7).fill(null).map(() => ({ count: 0, ingresos: 0 }))
+  rows.forEach(t => {
+    const [y, m, d] = t.fecha.split('-')
+    const dow = new Date(+y, +m - 1, +d).getDay()
+    byDay[dow].count++
+    byDay[dow].ingresos += Number(t.monto)
+  })
+  const dayAvgs = byDay.map((d, i) => ({ day: DAYS_ES[i], count: d.count, avg: d.count > 0 ? d.ingresos / d.count : 0 }))
+  const bestDay = dayAvgs.reduce((a, b) => b.count > a.count ? b : a)
+  const worstDay = dayAvgs.filter(d => d.day !== 'Domingo').reduce((a, b) => b.count < a.count ? b : a)
+
+  const byWeekCount = [0, 0, 0, 0, 0]
+  rows.forEach(t => {
+    const day = parseInt(t.fecha.slice(8, 10))
+    byWeekCount[Math.min(Math.floor((day - 1) / 7), 4)]++
+  })
+  const bestWeek = WEEK_LABELS[byWeekCount.indexOf(Math.max(...byWeekCount))]
+
+  // Segmentación RFM por patente
+  const hoyMs = Date.now()
+  const rfmByPat = {}
+  rows.filter(t => t.patente).forEach(t => {
+    const p = t.patente.trim().toUpperCase()
+    if (!rfmByPat[p]) rfmByPat[p] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity }
+    rfmByPat[p].visits++
+    rfmByPat[p].total += Number(t.monto)
+    const ms = new Date(t.fecha).getTime()
+    if (ms > rfmByPat[p].lastMs) rfmByPat[p].lastMs = ms
+    if (ms < rfmByPat[p].firstMs) rfmByPat[p].firstMs = ms
+  })
+  const rfmChampions = [], rfmAtRisk = [], rfmLost = [], rfmNew = [], rfmHighTicket = []
+  Object.entries(rfmByPat).forEach(([pat, d]) => {
+    const days = (hoyMs - d.lastMs) / 86400000
+    const ticket = Math.round(d.total / d.visits)
+    const c = { patente: pat, visits: d.visits, ticket, total: d.total, days: Math.round(days) }
+    if (d.visits >= 3 && days <= 60) rfmChampions.push(c)
+    else if (d.visits >= 2 && days > 60 && days <= 120) rfmAtRisk.push(c)
+    else if (days > 120) rfmLost.push(c)
+    if ((hoyMs - d.firstMs) / 86400000 <= 45 && d.visits <= 2) rfmNew.push(c)
+    if (ticket > ticketProm * 1.5 && d.visits >= 2) rfmHighTicket.push(c)
+  })
+  const rfmSegments = {
+    champions: rfmChampions.sort((a, b) => b.visits - a.visits).slice(0, 10),
+    atRisk: rfmAtRisk.sort((a, b) => a.days - b.days).slice(0, 10),
+    lost: rfmLost.sort((a, b) => a.days - b.days).slice(0, 10),
+    new: rfmNew.sort((a, b) => a.days - b.days).slice(0, 10),
+    highTicket: rfmHighTicket.sort((a, b) => b.ticket - a.ticket).slice(0, 10),
+    counts: {
+      champions: rfmChampions.length, atRisk: rfmAtRisk.length,
+      lost: rfmLost.length, new: rfmNew.length, highTicket: rfmHighTicket.length,
+    }
+  }
+
+  // Candidatos a membresía: 3+ visitas este año, sin membresía activa
+  const curYear = new Date().getFullYear().toString()
+  const byP = {}
+  rows.forEach(t => {
+    if (!t.patente) return
+    const p = t.patente.trim().toUpperCase().replace(/\s+/g, '')
+    if (!t.fecha.startsWith(curYear)) return
+    if (!byP[p]) byP[p] = { visits: 0, total: 0, hasMembership: false, lastDate: '' }
+    byP[p].visits++
+    byP[p].total += Number(t.monto)
+    if ((t.tipo_servicio || '').toLowerCase().includes('membres')) byP[p].hasMembership = true
+    if (t.fecha > byP[p].lastDate) byP[p].lastDate = t.fecha
+  })
+  const membershipCandidates = Object.entries(byP)
+    .filter(([, d]) => d.visits >= 3 && !d.hasMembership)
+    .map(([pat, d]) => {
+      const avgT = Math.round(d.total / d.visits)
+      return { pat, visits: d.visits, avgTicket: avgT, total: d.total, lastDate: d.lastDate, mbRec: avgT >= 18000 ? 'Full' : 'Simple' }
+    })
+    .sort((a, b) => b.visits - a.visits)
+
+  // Comparación acumulada día a día del mes elegido vs el anterior
+  const useKey = monthKeys.includes(chosenMonthKey) ? chosenMonthKey : monthKeys[monthKeys.length - 1]
+  const chosenIdx = monthKeys.indexOf(useKey)
+  const prevKey = chosenIdx > 0 ? monthKeys[chosenIdx - 1] : null
+  const mCurLabel = useKey ? MONTHS_ES_FULL[parseInt(useKey.slice(5)) - 1] : ''
+  const mPrevLabel = prevKey ? MONTHS_ES_FULL[parseInt(prevKey.slice(5)) - 1] : ''
+  const now = new Date()
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const isCurrentMonth = useKey === todayKey
+  const chosenYear = useKey ? parseInt(useKey.slice(0, 4)) : now.getFullYear()
+  const chosenMonthN = useKey ? parseInt(useKey.slice(5)) : now.getMonth() + 1
+  const diasEnMesCur = new Date(chosenYear, chosenMonthN, 0).getDate()
+  const hoyDia = isCurrentMonth ? now.getDate() : diasEnMesCur
+  const semanaActual = Math.ceil(hoyDia / 7)
+  const curRows = useKey ? rows.filter(t => t.fecha.slice(0, 7) === useKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia) : []
+  const prevRows = prevKey ? rows.filter(t => t.fecha.slice(0, 7) === prevKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia) : []
+  const prevFull = prevKey ? rows.filter(t => t.fecha.slice(0, 7) === prevKey) : []
+  const curRevAcum = curRows.reduce((s, t) => s + Number(t.monto), 0)
+  const prevRevAcum = prevRows.reduce((s, t) => s + Number(t.monto), 0)
+  const prevFullRev = prevFull.reduce((s, t) => s + Number(t.monto), 0)
+  const curCntAcum = curRows.length
+  const prevCntAcum = prevRows.length
+  const acumRevDelta = prevRevAcum > 0 ? ((curRevAcum - prevRevAcum) / prevRevAcum) * 100 : 0
+  const acumCntDelta = prevCntAcum > 0 ? ((curCntAcum - prevCntAcum) / prevCntAcum) * 100 : 0
+  const pace = hoyDia > 0 ? curRevAcum / hoyDia : 0
+  const forecastByPace = Math.round(pace * diasEnMesCur)
+  const forecastVsPrev = prevFullRev > 0 ? ((forecastByPace - prevFullRev) / prevFullRev) * 100 : 0
+  const svcSt = rs => {
+    const m = {}
+    rs.forEach(t => { const s = normalizeServicio(t.tipo_servicio); if (!m[s]) m[s] = { count: 0, rev: 0 }; m[s].count++; m[s].rev += Number(t.monto) })
+    return m
+  }
+  const svcCur = svcSt(curRows)
+  const svcPrev = svcSt(prevRows)
+  const svcComp = [...new Set([...Object.keys(svcCur), ...Object.keys(svcPrev)])]
+    .map(name => {
+      const c = svcCur[name] || { count: 0, rev: 0 }; const p = svcPrev[name] || { count: 0, rev: 0 }
+      const delta = p.count > 0 ? Math.round(((c.count - p.count) / p.count) * 100) : null
+      return { name, curCount: c.count, prevCount: p.count, ticket: c.count > 0 ? Math.round(c.rev / c.count) : 0, delta }
+    })
+    .filter(s => s.curCount >= 2 || s.prevCount >= 2)
+  const svcWinning = svcComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
+  const svcLosing = svcComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
+  const promoByProfit = Object.entries(svcCur).filter(([, v]) => v.count >= 3).map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count })).sort((a, b) => b.ticket - a.ticket)[0] || null
+  const weeklyStatus = acumRevDelta >= 5 ? 'adelante' : acumRevDelta <= -5 ? 'atras' : 'par'
+
+  const ac = {
+    hoyDia, semanaActual, diasEnMesCur, mCurLabel, mPrevLabel, isCurrentMonth,
+    curRevAcum, prevRevAcum, acumRevDelta, acumCntDelta, curCntAcum, prevCntAcum,
+    pace, forecastByPace, forecastVsPrev, prevFullRev,
+    svcWinning, svcLosing, weeklyStatus,
+    promoDecision: { byProfitability: promoByProfit, growing: svcWinning[0] || null, rescue: svcLosing[0] || null },
+    forecast: { nextRev: forecastByPace, lastRev: prevFullRev, deltaPct: forecastVsPrev, risk: forecastVsPrev < -15 ? 'alto' : forecastVsPrev < -5 ? 'medio' : 'bajo', monthLabel: mCurLabel },
+  }
+
+  return { monthKeys, ticketProm, bestDay, worstDay, bestWeek, rfmSegments, membershipCandidates, ac }
+}
+
 export default function Analytics() {
   const [txns, setTxns] = useState([])
   const [loading, setLoading] = useState(true)
   const [local, setLocal] = useState('all')
   const [intelMonth, setIntelMonth] = useState(null)
+  const [intelLocal, setIntelLocal] = useState('all')
 
   useEffect(() => {
     async function load() {
@@ -234,6 +386,15 @@ export default function Analytics() {
     if (local === 'all') return txns
     return txns.filter(t => t.local_id === Number(local))
   }, [txns, local])
+
+  // Inteligencia Publicitaria tiene su propio selector de sucursal, independiente
+  // del filtro general de arriba, para poder verla por local sin cambiar el resto.
+  const intelRows = useMemo(() => {
+    if (intelLocal === 'all') return txns
+    return txns.filter(t => t.local_id === Number(intelLocal))
+  }, [txns, intelLocal])
+
+  const intel = useMemo(() => buildIntelligence(intelRows, intelMonth), [intelRows, intelMonth])
 
   const analytics = useMemo(() => {
     if (!filtered.length) return null
@@ -652,64 +813,6 @@ export default function Analytics() {
     }
   }, [filtered])
 
-  const selectedAccum = useMemo(() => {
-    if (!analytics || !filtered.length) return null
-    const { monthKeys } = analytics
-    const chosenKey = intelMonth ?? monthKeys[monthKeys.length - 1]
-    const chosenIdx = monthKeys.indexOf(chosenKey)
-    if (chosenIdx < 0) return null
-    const prevKey = chosenIdx > 0 ? monthKeys[chosenIdx - 1] : null
-    const mCurLabel  = MONTHS_ES_FULL[parseInt(chosenKey.slice(5)) - 1]
-    const mPrevLabel = prevKey ? MONTHS_ES_FULL[parseInt(prevKey.slice(5)) - 1] : ''
-    const now = new Date()
-    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const isCurrentMonth = chosenKey === todayKey
-    const chosenYear  = parseInt(chosenKey.slice(0, 4))
-    const chosenMonthN = parseInt(chosenKey.slice(5))
-    const diasEnMesCur = new Date(chosenYear, chosenMonthN, 0).getDate()
-    const hoyDia = isCurrentMonth ? now.getDate() : diasEnMesCur
-    const semanaActual = Math.ceil(hoyDia / 7)
-    const curRows  = filtered.filter(t => t.fecha.slice(0, 7) === chosenKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia)
-    const prevRows = prevKey ? filtered.filter(t => t.fecha.slice(0, 7) === prevKey && parseInt(t.fecha.slice(8, 10)) <= hoyDia) : []
-    const prevFull = prevKey ? filtered.filter(t => t.fecha.slice(0, 7) === prevKey) : []
-    const curRevAcum   = curRows.reduce((s, t) => s + Number(t.monto), 0)
-    const prevRevAcum  = prevRows.reduce((s, t) => s + Number(t.monto), 0)
-    const prevFullRev  = prevFull.reduce((s, t) => s + Number(t.monto), 0)
-    const curCntAcum   = curRows.length
-    const prevCntAcum  = prevRows.length
-    const acumRevDelta = prevRevAcum > 0 ? ((curRevAcum - prevRevAcum) / prevRevAcum) * 100 : 0
-    const acumCntDelta = prevCntAcum > 0 ? ((curCntAcum - prevCntAcum) / prevCntAcum) * 100 : 0
-    const pace = hoyDia > 0 ? curRevAcum / hoyDia : 0
-    const forecastByPace = Math.round(pace * diasEnMesCur)
-    const forecastVsPrev = prevFullRev > 0 ? ((forecastByPace - prevFullRev) / prevFullRev) * 100 : 0
-    const svcSt = rows => {
-      const m = {}
-      rows.forEach(t => { const s = normalizeServicio(t.tipo_servicio); if (!m[s]) m[s] = { count: 0, rev: 0 }; m[s].count++; m[s].rev += Number(t.monto) })
-      return m
-    }
-    const svcCur  = svcSt(curRows)
-    const svcPrev = svcSt(prevRows)
-    const svcComp = [...new Set([...Object.keys(svcCur), ...Object.keys(svcPrev)])]
-      .map(name => {
-        const c = svcCur[name] || { count: 0, rev: 0 }; const p = svcPrev[name] || { count: 0, rev: 0 }
-        const delta = p.count > 0 ? Math.round(((c.count - p.count) / p.count) * 100) : null
-        return { name, curCount: c.count, prevCount: p.count, ticket: c.count > 0 ? Math.round(c.rev / c.count) : 0, delta }
-      })
-      .filter(s => s.curCount >= 2 || s.prevCount >= 2)
-    const svcWinning = svcComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
-    const svcLosing  = svcComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
-    const promoByProfit = Object.entries(svcCur).filter(([, v]) => v.count >= 3).map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count })).sort((a, b) => b.ticket - a.ticket)[0] || null
-    const weeklyStatus = acumRevDelta >= 5 ? 'adelante' : acumRevDelta <= -5 ? 'atras' : 'par'
-    return {
-      hoyDia, semanaActual, diasEnMesCur, mCurLabel, mPrevLabel, isCurrentMonth,
-      curRevAcum, prevRevAcum, acumRevDelta, acumCntDelta, curCntAcum, prevCntAcum,
-      pace, forecastByPace, forecastVsPrev, prevFullRev,
-      svcWinning, svcLosing, weeklyStatus,
-      promoDecision: { byProfitability: promoByProfit, growing: svcWinning[0] || null, rescue: svcLosing[0] || null },
-      forecast: { nextRev: forecastByPace, lastRev: prevFullRev, deltaPct: forecastVsPrev, risk: forecastVsPrev < -15 ? 'alto' : forecastVsPrev < -5 ? 'medio' : 'bajo', monthLabel: mCurLabel },
-    }
-  }, [filtered, analytics, intelMonth])
-
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <div className="text-center">
@@ -722,7 +825,6 @@ export default function Analytics() {
   if (!analytics) return <div className="p-8 text-gray-400">Sin datos</div>
 
   const a = analytics
-  const ac = selectedAccum
 
   // Chart data
   const monthlyChartData = {
@@ -1086,23 +1188,58 @@ export default function Analytics() {
 
       {/* ── INTELIGENCIA PUBLICITARIA ── */}
       <div>
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <Megaphone size={16} className="text-violet-400" />
             <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
           </div>
-          <select
-            value={intelMonth ?? a.monthKeys.at(-1) ?? ''}
-            onChange={e => setIntelMonth(e.target.value || null)}
-            className="text-xs bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          >
-            {[...a.monthKeys].reverse().map(key => (
-              <option key={key} value={key}>
-                {MONTHS_ES_FULL[parseInt(key.slice(5)) - 1]} {key.slice(0, 4)}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg p-0.5">
+              {[
+                { v: 'all', label: 'Todos' },
+                { v: '1', label: 'Pedro Fontova' },
+                { v: '2', label: 'Curicó' },
+              ].map(opt => (
+                <button
+                  key={opt.v}
+                  onClick={() => setIntelLocal(opt.v)}
+                  className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    intelLocal === opt.v ? 'bg-violet-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {intel && (
+              <select
+                value={intelMonth ?? intel.monthKeys.at(-1) ?? ''}
+                onChange={e => setIntelMonth(e.target.value || null)}
+                className="text-xs bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              >
+                {[...intel.monthKeys].reverse().map(key => (
+                  <option key={key} value={key}>
+                    {MONTHS_ES_FULL[parseInt(key.slice(5)) - 1]} {key.slice(0, 4)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
+        {!intel ? (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center text-gray-500 text-sm">
+            Sin datos para esta sucursal
+          </div>
+        ) : (() => {
+          const ac = intel.ac
+          const rfmSegments = intel.rfmSegments
+          const membershipCandidates = intel.membershipCandidates
+          const bestDay = intel.bestDay
+          const worstDay = intel.worstDay
+          const bestWeek = intel.bestWeek
+          const ticketProm = intel.ticketProm
+          return (
+        <>
         {ac && <p className="text-xs text-gray-500 mb-5">{ac.isCurrentMonth ? 'Comparación acumulada día a día' : 'Mes completo'} · {ac.mCurLabel} vs {ac.mPrevLabel}</p>}
 
         {/* A. Pulso del mes */}
@@ -1278,7 +1415,7 @@ export default function Analytics() {
           <AdInsightCard
             icon={Crown}
             accent="amber"
-            title={`Champions — ${a.rfmSegments.counts.champions} patentes`}
+            title={`Champions — ${rfmSegments.counts.champions} patentes`}
             body={`3+ visitas, última hace menos de 60 días. Son tu base más valiosa y embajadores naturales de la marca.`}
             accion="Invitar a dejar reseña en Google. Ofrecer tarjeta VIP con beneficios exclusivos."
             prioridad="Alta"
@@ -1289,7 +1426,7 @@ export default function Analytics() {
           <AdInsightCard
             icon={RefreshCw}
             accent="blue"
-            title={`En riesgo — ${a.rfmSegments.counts.atRisk} patentes`}
+            title={`En riesgo — ${rfmSegments.counts.atRisk} patentes`}
             body={`2+ visitas pero sin venir entre 60 y 120 días. Aún recuerdan la marca — ventana ideal para reactivar antes de que se vayan definitivamente.`}
             accion="Campaña de reactivación personalizada con nombre + servicio previo."
             prioridad="Alta"
@@ -1300,7 +1437,7 @@ export default function Analytics() {
           <AdInsightCard
             icon={UserX}
             accent="rose"
-            title={`Perdidos — ${a.rfmSegments.counts.lost} patentes`}
+            title={`Perdidos — ${rfmSegments.counts.lost} patentes`}
             body={`Sin visitas hace más de 120 días. Recuperar el 10% con un incentivo fuerte puede generar ingresos equivalentes a varios meses de publicidad normal.`}
             accion="Campaña de incentivo con oferta de reingreso (descuento 20% o servicio extra gratis)."
             prioridad="Media"
@@ -1311,7 +1448,7 @@ export default function Analytics() {
           <AdInsightCard
             icon={UserPlus}
             accent="green"
-            title={`Nuevos — ${a.rfmSegments.counts.new} patentes`}
+            title={`Nuevos — ${rfmSegments.counts.new} patentes`}
             body={`Primera visita en los últimos 45 días. El 70% de los clientes que no vuelven en 30 días nunca regresan — convertir la segunda visita es crítico.`}
             accion="Mensaje de bienvenida + descuento segunda visita enviado 7 días post-servicio."
             prioridad="Alta"
@@ -1322,25 +1459,25 @@ export default function Analytics() {
           <AdInsightCard
             icon={Zap}
             accent="purple"
-            title={`Alto ticket — ${a.rfmSegments.counts.highTicket} patentes`}
-            body={`Ticket promedio >1.5× la media general (${fmtCLP(a.ticketProm * 1.5)}+), 2+ visitas. Clientes premium con mayor disposición a pagar servicios de valor.`}
+            title={`Alto ticket — ${rfmSegments.counts.highTicket} patentes`}
+            body={`Ticket promedio >1.5× la media general (${fmtCLP(ticketProm * 1.5)}+), 2+ visitas. Clientes premium con mayor disposición a pagar servicios de valor.`}
             accion="Ofrecer paquetes premium, detailing y servicios de protección de pintura."
             prioridad="Media"
             canal="Instagram + WhatsApp directo"
-            copy={`"Tu auto merece el mejor cuidado. Conoce nuestro servicio Premium Care: tratamiento completo desde ${fmtCLP(a.ticketProm * 1.6)} 🏅"`}
+            copy={`"Tu auto merece el mejor cuidado. Conoce nuestro servicio Premium Care: tratamiento completo desde ${fmtCLP(ticketProm * 1.6)} 🏅"`}
           />
 
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <p className="text-xs text-gray-500 uppercase tracking-wide mb-3 font-medium">Resumen RFM</p>
             <div className="space-y-2.5">
               {[
-                { label: 'Champions', count: a.rfmSegments.counts.champions, color: 'bg-amber-400' },
-                { label: 'En riesgo', count: a.rfmSegments.counts.atRisk, color: 'bg-blue-400' },
-                { label: 'Perdidos', count: a.rfmSegments.counts.lost, color: 'bg-rose-400' },
-                { label: 'Nuevos', count: a.rfmSegments.counts.new, color: 'bg-green-400' },
-                { label: 'Alto ticket', count: a.rfmSegments.counts.highTicket, color: 'bg-purple-400' },
+                { label: 'Champions', count: rfmSegments.counts.champions, color: 'bg-amber-400' },
+                { label: 'En riesgo', count: rfmSegments.counts.atRisk, color: 'bg-blue-400' },
+                { label: 'Perdidos', count: rfmSegments.counts.lost, color: 'bg-rose-400' },
+                { label: 'Nuevos', count: rfmSegments.counts.new, color: 'bg-green-400' },
+                { label: 'Alto ticket', count: rfmSegments.counts.highTicket, color: 'bg-purple-400' },
               ].map(({ label, count, color }) => {
-                const total = a.rfmSegments.counts.champions + a.rfmSegments.counts.atRisk + a.rfmSegments.counts.lost + a.rfmSegments.counts.new + a.rfmSegments.counts.highTicket
+                const total = rfmSegments.counts.champions + rfmSegments.counts.atRisk + rfmSegments.counts.lost + rfmSegments.counts.new + rfmSegments.counts.highTicket
                 const pct = total > 0 ? (count / total) * 100 : 0
                 return (
                   <div key={label}>
@@ -1359,7 +1496,7 @@ export default function Analytics() {
         </div>
 
         {/* C. Candidatos a Membresía */}
-        {a.membershipCandidates.length > 0 && (
+        {membershipCandidates.length > 0 && (
           <>
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
               Candidatos a Membresía — {new Date().getFullYear()}
@@ -1369,22 +1506,22 @@ export default function Analytics() {
               <div className="flex flex-wrap gap-4 mb-5 pb-4 border-b border-gray-800">
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Total candidatos</p>
-                  <p className="text-2xl font-bold text-white">{a.membershipCandidates.length}</p>
+                  <p className="text-2xl font-bold text-white">{membershipCandidates.length}</p>
                   <p className="text-xs text-gray-500">3+ visitas sin membresía</p>
                 </div>
                 <div className="border-l border-gray-800 pl-4">
                   <p className="text-xs text-gray-500 mb-0.5">Frecuentes (5+ visitas)</p>
-                  <p className="text-2xl font-bold text-amber-400">{a.membershipCandidates.filter(c => c.visits >= 5).length}</p>
+                  <p className="text-2xl font-bold text-amber-400">{membershipCandidates.filter(c => c.visits >= 5).length}</p>
                   <p className="text-xs text-gray-500">prioridad máxima</p>
                 </div>
                 <div className="border-l border-gray-800 pl-4">
                   <p className="text-xs text-gray-500 mb-0.5">Potencial Full</p>
-                  <p className="text-2xl font-bold text-violet-400">{a.membershipCandidates.filter(c => c.mbRec === 'Full').length}</p>
+                  <p className="text-2xl font-bold text-violet-400">{membershipCandidates.filter(c => c.mbRec === 'Full').length}</p>
                   <p className="text-xs text-gray-500">ticket prom ≥ $18.000</p>
                 </div>
                 <div className="border-l border-gray-800 pl-4">
                   <p className="text-xs text-gray-500 mb-0.5">Potencial Simple</p>
-                  <p className="text-2xl font-bold text-blue-400">{a.membershipCandidates.filter(c => c.mbRec === 'Simple').length}</p>
+                  <p className="text-2xl font-bold text-blue-400">{membershipCandidates.filter(c => c.mbRec === 'Simple').length}</p>
                   <p className="text-xs text-gray-500">ticket prom &lt; $18.000</p>
                 </div>
               </div>
@@ -1404,7 +1541,7 @@ export default function Analytics() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/50">
-                    {a.membershipCandidates.slice(0, 20).map(c => (
+                    {membershipCandidates.slice(0, 20).map(c => (
                       <tr key={c.pat} className="hover:bg-gray-800/30">
                         <td className="py-2 pr-4 font-mono font-medium text-white">{c.pat}</td>
                         <td className="py-2 pr-4 text-center">
@@ -1425,15 +1562,15 @@ export default function Analytics() {
                   </tbody>
                 </table>
               </div>
-              {a.membershipCandidates.length > 20 && (
-                <p className="text-xs text-gray-600 mt-3 text-right">+{a.membershipCandidates.length - 20} más con 3+ visitas</p>
+              {membershipCandidates.length > 20 && (
+                <p className="text-xs text-gray-600 mt-3 text-right">+{membershipCandidates.length - 20} más con 3+ visitas</p>
               )}
 
               {/* Acción */}
               <div className="mt-4 pt-4 border-t border-gray-800">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Acción recomendada</p>
                 <p className="text-xs text-gray-300">
-                  Enviar WhatsApp a los {a.membershipCandidates.filter(c => c.visits >= 5).length} frecuentes primero.
+                  Enviar WhatsApp a los {membershipCandidates.filter(c => c.visits >= 5).length} frecuentes primero.
                   {' '}Copy sugerido: <span className="text-gray-400 italic">"Hola, notamos que ya llevas {'{N}'} visitas este año en Alpha Cleaners 🚗 — con tu frecuencia, la membresía te sale más barata que cada lavado por separado. ¿Te cuento cómo funciona?"</span>
                 </p>
               </div>
@@ -1454,23 +1591,23 @@ export default function Analytics() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-xs text-gray-400">Mejor día para captar</p>
-                  <p className="text-sm font-medium text-white">{a.bestDay.day}</p>
-                  <p className="text-xs text-gray-500">{a.bestDay.count.toLocaleString()} servicios históricos</p>
+                  <p className="text-sm font-medium text-white">{bestDay.day}</p>
+                  <p className="text-xs text-gray-500">{bestDay.count.toLocaleString()} servicios históricos</p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-gray-400">Día más lento (promo)</p>
-                  <p className="text-sm font-medium text-white">{a.worstDay.day}</p>
+                  <p className="text-sm font-medium text-white">{worstDay.day}</p>
                   <p className="text-xs text-gray-500">Ideal para descuentos de relleno</p>
                 </div>
               </div>
               <div className="border-t border-gray-800 pt-3">
                 <p className="text-xs text-gray-400 mb-1">Mejor semana del mes para ads</p>
-                <p className="text-sm font-medium text-white">{a.bestWeek}</p>
+                <p className="text-sm font-medium text-white">{bestWeek}</p>
                 <p className="text-xs text-gray-500 mt-1">Mayor volumen histórico — presupuesto de ads rinde más en este período</p>
               </div>
               <div className="border-t border-gray-800 pt-3 space-y-1">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide">Acción recomendada</p>
-                <p className="text-xs text-gray-300">Programar posts orgánicos los {a.bestDay.day}s. Activar ads la {a.bestWeek.toLowerCase()}. Lanzar promos los {a.worstDay.day}s para mover demanda baja.</p>
+                <p className="text-xs text-gray-300">Programar posts orgánicos los {bestDay.day}s. Activar ads la {bestWeek.toLowerCase()}. Lanzar promos los {worstDay.day}s para mover demanda baja.</p>
               </div>
             </div>
           </div>
@@ -1506,10 +1643,10 @@ export default function Analytics() {
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide">Acción correctiva</p>
                 <p className="text-xs text-gray-300">
                   {ac.forecast.risk === 'alto'
-                    ? `Riesgo alto de caída. Activar campaña de clientes en riesgo (${a.rfmSegments.counts.atRisk} patentes) + empujar ${ac.promoDecision.byProfitability?.name || 'servicio de mayor ticket'} con descuento limitado.`
+                    ? `Riesgo alto de caída. Activar campaña de clientes en riesgo (${rfmSegments.counts.atRisk} patentes) + empujar ${ac.promoDecision.byProfitability?.name || 'servicio de mayor ticket'} con descuento limitado.`
                     : ac.forecast.risk === 'medio'
-                    ? `Tendencia moderada. Mantener ads activos la ${a.bestWeek.toLowerCase()} y reactivar ${a.rfmSegments.counts.atRisk} clientes en riesgo con WhatsApp.`
-                    : `Proyección positiva. Invertir en captación de nuevos clientes (${a.rfmSegments.counts.new} nuevos este período) para consolidar el crecimiento.`
+                    ? `Tendencia moderada. Mantener ads activos la ${bestWeek.toLowerCase()} y reactivar ${rfmSegments.counts.atRisk} clientes en riesgo con WhatsApp.`
+                    : `Proyección positiva. Invertir en captación de nuevos clientes (${rfmSegments.counts.new} nuevos este período) para consolidar el crecimiento.`
                   }
                 </p>
               </div>
@@ -1529,6 +1666,9 @@ export default function Analytics() {
             ))}
           </div>
         </div>
+        </>
+          )
+        })()}
       </div>
 
       {/* Loyalty table */}
