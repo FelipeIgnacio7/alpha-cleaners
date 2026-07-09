@@ -36,10 +36,17 @@ function parseCSV(text) {
   })
 }
 
+// Debe coincidir exactamente con el índice único transacciones_lavado_dedup:
+// (fecha, local_id, COALESCE(patente,''), monto, tipo_servicio)
+function dedupKey(fecha, local_id, patente, monto, tipo_servicio) {
+  return `${fecha}|${local_id}|${patente || ''}|${Number(monto)}|${tipo_servicio || ''}`
+}
+
 function ModalImport({ locales, onClose, onDone }) {
   const [rows, setRows] = useState(null)
   const [fileName, setFileName] = useState('')
   const [importing, setImporting] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [result, setResult] = useState(null)
 
   function handleFile(e) {
@@ -47,7 +54,7 @@ function ModalImport({ locales, onClose, onDone }) {
     if (!file) return
     setFileName(file.name)
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const parsed = parseCSV(ev.target.result)
       const enriched = parsed.map(r => ({
         raw: r,
@@ -61,13 +68,27 @@ function ModalImport({ locales, onClose, onDone }) {
         marca: r['Marca'] ?? '',
         modelo: r['Modelo'] ?? '',
       }))
-      setRows(enriched)
+
+      setChecking(true)
+      const fechas = [...new Set(enriched.filter(r => r.monto > 0 && r.local_id && r.fecha).map(r => r.fecha))]
+      let existingKeys = new Set()
+      if (fechas.length > 0) {
+        const { data: existentes } = await supabase
+          .from('transacciones_lavado')
+          .select('fecha, local_id, patente, monto, tipo_servicio')
+          .in('fecha', fechas)
+        existingKeys = new Set((existentes ?? []).map(r => dedupKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio)))
+      }
+      setChecking(false)
+      setRows(enriched.map(r => ({ ...r, yaExiste: existingKeys.has(dedupKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio)) })))
     }
     reader.readAsText(file, 'utf-8')
   }
 
-  const validos = rows?.filter(r => r.monto > 0 && r.local_id && r.fecha) ?? []
-  const omitidos = (rows?.length ?? 0) - validos.length
+  const candidatos = rows?.filter(r => r.monto > 0 && r.local_id && r.fecha) ?? []
+  const validos = candidatos.filter(r => !r.yaExiste)
+  const yaCargados = candidatos.length - validos.length
+  const omitidos = (rows?.length ?? 0) - candidatos.length
   const totalMonto = validos.reduce((a, r) => a + r.monto, 0)
 
   async function importar() {
@@ -105,7 +126,11 @@ function ModalImport({ locales, onClose, onDone }) {
           <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
         </div>
 
-        {!rows ? (
+        {checking ? (
+          <div className="flex flex-col items-center justify-center p-10 text-gray-400 text-sm">
+            Verificando registros ya cargados...
+          </div>
+        ) : !rows ? (
           <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-xl p-10 cursor-pointer transition-colors group">
             <Upload size={28} className="text-gray-500 group-hover:text-blue-400 mb-3 transition-colors" />
             <p className="text-sm text-gray-400 group-hover:text-gray-200">Haz click para seleccionar el CSV</p>
@@ -117,7 +142,7 @@ function ModalImport({ locales, onClose, onDone }) {
             <div className="bg-gray-800 rounded-xl p-4">
               <p className="text-xs text-gray-400 mb-3 font-medium uppercase tracking-wide">Resumen del archivo</p>
               <div className="text-xs text-gray-500 mb-3 font-mono truncate">{fileName}</div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div className="text-center">
                   <p className="text-xl font-bold text-blue-400">{validos.length}</p>
                   <p className="text-xs text-gray-400">a importar</p>
@@ -125,6 +150,10 @@ function ModalImport({ locales, onClose, onDone }) {
                 <div className="text-center">
                   <p className="text-xl font-bold text-green-400">{fmt(totalMonto)}</p>
                   <p className="text-xs text-gray-400">total</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl font-bold text-yellow-500">{yaCargados}</p>
+                  <p className="text-xs text-gray-400">ya cargados</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xl font-bold text-gray-500">{omitidos}</p>
