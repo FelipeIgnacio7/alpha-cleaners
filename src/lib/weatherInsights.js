@@ -114,6 +114,92 @@ export function buildWeatherRecommendations(branchLabel, days) {
   return recs
 }
 
+// Playbook estratégico para una semana con lluvia. Ideas accionables de
+// marketing/ventas propias del rubro lavado de autos, agrupadas por objetivo.
+// Se muestra una sola vez (no por sucursal) cuando hay lluvia relevante.
+export function buildRainSeasonPlaybook(forecasts) {
+  const maxRainy = Math.max(...forecasts.map(f => f.days.filter(d => d.isRainy).length))
+  if (maxRainy < 2) return []
+
+  return [
+    // ---- Capturar caja AHORA, aunque no laven esta semana ----
+    {
+      accent: 'purple',
+      tag: '1 · Captura caja ahora',
+      title: 'Llama a tus candidatos a membresía',
+      body: 'Usa el tiempo muerto de los lavadores para telefonear. En Inteligencia → sección de candidatos a membresía ya tienes la lista de clientes frecuentes que aún no son socios. La lluvia es la mejor excusa para cerrarlos: cobras caja hoy aunque no laven esta semana, y aseguras sus próximas visitas. Fija una meta diaria de llamados por sucursal.',
+      whatsapp: 'Hola [nombre] 👋 Vi que nos visitas seguido y quería contarte de nuestra membresía: lavados a precio preferente todo el mes, sin importar el clima. Si te sumas esta semana te dejo el precio de lanzamiento. ¿Te cuento cómo funciona?',
+    },
+    {
+      accent: 'purple',
+      tag: '1 · Captura caja ahora',
+      title: 'Vende bonos y gift cards prepago',
+      body: '"Compra ahora, usa cuando pare la lluvia." Genera ingreso inmediato sin necesitar box ni lavadores disponibles. Ofrece un pequeño descuento o un lavado extra por comprar el pack de 5 o 10. Ideal además como regalo — empújalo si hay alguna fecha especial cerca (Día del Padre/Madre, cumpleaños).',
+      whatsapp: '🎁 Pack prepago de lavados con descuento: compra hoy y los usas cuando quieras, no vencen por la lluvia. Llévate 5 y te regalamos 1. ¿Te reservo tu pack?',
+    },
+
+    // ---- Vender lo que la lluvia SÍ hace necesario (el reencuadre experto) ----
+    {
+      accent: 'blue',
+      tag: '2 · Productos de lluvia',
+      title: 'Sellado hidrofóbico de parabrisas — tu producto estrella de invierno',
+      body: 'Esto NO se pierde con la lluvia: se vende MÁS por la lluvia. El tratamiento hidrofóbico de parabrisas hace que el agua resbale sola y mejora muchísimo la visibilidad manejando bajo lluvia. Es seguridad, ticket alto y toma pocos minutos bajo techo. Súmale antiempañante de vidrios interiores, cambio de plumillas y sellado de gomas/burletes. Arma un "Pack Invierno".',
+      whatsapp: '🌧️👁️ ¿Manejas con lluvia y no ves bien? Tratamiento hidrofóbico de parabrisas: el agua resbala sola y ves perfecto. Súmale antiempañante y plumillas nuevas con nuestro Pack Invierno. ¿Te agendo?',
+    },
+    {
+      accent: 'blue',
+      tag: '2 · Productos de lluvia',
+      title: 'Impermeabiliza el interior antes de que se moje',
+      body: 'Con lluvia la gente entra y sale del auto mojada: tapices y alfombras sufren. Ofrece impermeabilización de tapiz y alfombras, tratamiento de cuero, y descontaminación de olores/humedad. Son servicios de interior, bajo techo, que la temporada de lluvia hace más atractivos.',
+      whatsapp: '💺 Con la lluvia el interior de tu auto se humedece y agarra olor. Impermeabilizamos tapiz y alfombras + tratamiento antiolor. Queda protegido toda la temporada. ¿Lo agendamos?',
+    },
+
+    // ---- Servicios que no dependen del clima ----
+    {
+      accent: 'amber',
+      tag: '3 · Servicios sin clima',
+      title: 'Reorienta la oferta al interior y al detailing',
+      body: 'Todo lo que no se arruina si llueve después: detailing de interior, limpieza profunda de tapiz, aromatización, pulido de focos, pulido de carrocería, tratamiento de cuero. Ponlos al frente en el cartel de precios y en RRSS estos días. Un pulido de focos o un detailing interior mantiene el ticket aunque no laves por fuera.',
+      whatsapp: '✨ ¿Llueve y no vale la pena lavar por fuera? Aprovecha para el interior: detailing completo, aromatización y pulido de focos. Tu auto por dentro impecable. Turnos disponibles hoy 👇',
+    },
+
+    // ---- Llevar el lavado bajo techo ----
+    {
+      accent: 'green',
+      tag: '4 · Lleva el lavado bajo techo',
+      title: 'Lavado en seco a domicilio y estacionamientos techados',
+      body: 'La lluvia no importa si el auto está bajo techo. Ofrece lavado en seco (waterless) a domicilio, en estacionamientos subterráneos de edificios y en malls. Cierra convenios con edificios y oficinas para lavar flotas o autos de residentes en su propio estacionamiento cubierto. Es venta que la competencia deja pasar justo cuando llueve.',
+      whatsapp: '🏢 ¿Tu auto está en un estacionamiento techado? Te lo lavamos ahí mismo con lavado en seco, sin que lo saques a la lluvia. Ideal para edificios y oficinas. ¿Coordinamos?',
+    },
+
+    // ---- Llenar la agenda del primer día seco ----
+    {
+      accent: 'green',
+      tag: '5 · Agenda el post-lluvia',
+      title: 'Pre-vende la agenda del primer día seco',
+      body: 'Apenas pare, todos van a querer sacarse el barro. No esperes a que lleguen: abre agenda AHORA de "lavado de bajos / antibarro" y del combo post-lluvia (lavado + bajos + aspirado). Llegas al primer día seco con las horas llenas y el equipo dimensionado. Ofrece un descuento por reservar anticipado.',
+      whatsapp: '📅 La lluvia pasa, el barro queda. Reserva desde ya tu lavado antibarro para el primer día que pare — cupos limitados y con descuento por reservar anticipado. ¿Te aparto tu hora?',
+    },
+
+    // ---- Campaña masiva ----
+    {
+      accent: 'rose',
+      tag: '6 · Campaña masiva',
+      title: 'Mensaje a toda la base de clientes',
+      body: 'Combina las dos jugadas en un solo envío por WhatsApp/SMS a toda tu base: protección ANTES de la lluvia (sellado/cera/hidrofóbico) + pre-venta de horas para DESPUÉS. Segmenta si puedes: a los socios recuérdales el beneficio, a los frecuentes ofréceles membresía, a los inactivos un gancho para volver.',
+      whatsapp: '¡Hola! ☔ Se viene semana de lluvia. Dos formas de aprovechar: 1) protege tu auto hoy con sellado hidrofóbico y cera, y 2) reserva ya tu lavado antibarro para cuando pare (cupos con descuento). Responde este mensaje y te agendamos 👇',
+    },
+
+    // ---- Aprovechar el bache de tráfico ----
+    {
+      accent: 'amber',
+      tag: '7 · Aprovecha el bache',
+      title: 'Convierte el tiempo muerto en inversión',
+      body: 'Si igual hay menos autos, que no se pierda el día: mantención de box y equipos, capacitación del personal en servicios de mayor margen (detailing, hidrofóbico), y trabajo administrativo atrasado. Activa el programa de referidos y pide reseñas en Google a tus clientes fieles (sube tu ranking justo para cuando vuelva el sol). Graba contenido para RRSS: tips de manejo en lluvia, antes/después de un hidrofóbico.',
+    },
+  ]
+}
+
 // Comparativo entre sucursales: sugiere mover presupuesto/foco hacia la que tenga mejor clima
 export function buildCrossBranchInsight(forecasts) {
   if (forecasts.length < 2) return null

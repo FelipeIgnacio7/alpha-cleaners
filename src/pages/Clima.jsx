@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudRain, CloudSnow, CloudLightning,
-  Droplets, Thermometer, RefreshCw, AlertTriangle, MessageCircle, Check,
+  Droplets, Thermometer, RefreshCw, AlertTriangle, MessageCircle, Check, Target,
 } from 'lucide-react'
 import { fetchAllForecasts, weatherInfo } from '../lib/weather'
-import { buildWeatherRecommendations, buildCrossBranchInsight } from '../lib/weatherInsights'
+import { buildWeatherRecommendations, buildCrossBranchInsight, buildRainSeasonPlaybook } from '../lib/weatherInsights'
 
 const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
@@ -84,12 +84,14 @@ function InsightCard({ tag, title, body, whatsapp, accent = 'blue' }) {
     green: 'border-green-500/30 bg-green-500/5',
     amber: 'border-amber-500/30 bg-amber-500/5',
     rose: 'border-rose-500/30 bg-rose-500/5',
+    purple: 'border-purple-500/30 bg-purple-500/5',
   }
   const tagColors = {
     blue: 'bg-blue-500/20 text-blue-300',
     green: 'bg-green-500/20 text-green-300',
     amber: 'bg-amber-500/20 text-amber-300',
     rose: 'bg-rose-500/20 text-rose-300',
+    purple: 'bg-purple-500/20 text-purple-300',
   }
   return (
     <div className={`border rounded-xl p-5 ${accents[accent]}`}>
@@ -161,6 +163,29 @@ export default function Clima() {
         const crossInsight = buildCrossBranchInsight(forecasts)
         return crossInsight ? <InsightCard {...crossInsight} /> : null
       })()}
+
+      {(() => {
+        const playbook = buildRainSeasonPlaybook(forecasts)
+        if (playbook.length === 0) return null
+        return (
+          <div className="space-y-4">
+            <div className="border-l-2 border-blue-500 pl-3">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Target size={18} className="text-blue-400" /> Playbook de la semana de lluvia
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">Jugadas de venta para no perder la semana. Cada mensaje está listo para copiar y enviar por WhatsApp.</p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              {playbook.map((rec, i) => <InsightCard key={i} {...rec} />)}
+            </div>
+          </div>
+        )
+      })()}
+
+      <div className="border-l-2 border-gray-700 pl-3">
+        <h2 className="text-base font-bold text-white">Pronóstico y alertas por sucursal</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Acciones específicas según los días de lluvia de cada local.</p>
+      </div>
 
       {forecasts.map(({ branch, days }) => (
         <div key={branch.key} className="space-y-4">
