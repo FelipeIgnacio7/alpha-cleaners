@@ -34,14 +34,33 @@ function DayCard({ day }) {
   )
 }
 
+function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text)
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+  return Promise.resolve()
+}
+
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
       onClick={async () => {
-        await navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
+        try {
+          await copyToClipboard(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          // portapapeles no disponible; el texto ya queda visible en la tarjeta para copiar manualmente
+        }
       }}
       className="flex items-center gap-1.5 text-xs font-medium text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 hover:bg-gray-700 shrink-0"
     >
