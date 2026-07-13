@@ -1,0 +1,125 @@
+import { useEffect, useState } from 'react'
+import {
+  Sun, CloudSun, Cloud, CloudFog, CloudRain, CloudSnow, CloudLightning,
+  Droplets, Thermometer, RefreshCw, AlertTriangle,
+} from 'lucide-react'
+import { fetchAllForecasts, weatherInfo } from '../lib/weather'
+import { buildWeatherRecommendations } from '../lib/weatherInsights'
+
+const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+const ICONS = {
+  sun: Sun, 'cloud-sun': CloudSun, cloud: Cloud, fog: CloudFog,
+  rain: CloudRain, snow: CloudSnow, storm: CloudLightning,
+}
+
+function DayCard({ day }) {
+  const info = weatherInfo(day.code)
+  const Icon = ICONS[info.icon] || Cloud
+  const dt = new Date(day.date + 'T00:00:00')
+  return (
+    <div className={`flex-1 min-w-[110px] rounded-xl border p-3 text-center ${
+      day.isRainy ? 'border-blue-500/30 bg-blue-500/5' : 'border-gray-800 bg-gray-900'
+    }`}>
+      <p className="text-xs font-medium text-gray-400">{DAYS_ES[dt.getDay()]} {dt.getDate()}</p>
+      <Icon size={22} className={`mx-auto my-2 ${day.isRainy ? 'text-blue-400' : 'text-gray-400'}`} />
+      <p className="text-xs text-gray-300">{info.label}</p>
+      <p className="text-sm font-semibold text-white mt-1">
+        {Math.round(day.tempMax)}° / {Math.round(day.tempMin)}°
+      </p>
+      <p className="text-xs text-blue-400 mt-1 flex items-center justify-center gap-1">
+        <Droplets size={11} /> {day.precipProb}%
+      </p>
+    </div>
+  )
+}
+
+function InsightCard({ tag, title, body, accent = 'blue' }) {
+  const accents = {
+    blue: 'border-blue-500/30 bg-blue-500/5',
+    green: 'border-green-500/30 bg-green-500/5',
+    amber: 'border-amber-500/30 bg-amber-500/5',
+  }
+  const tagColors = {
+    blue: 'bg-blue-500/20 text-blue-300',
+    green: 'bg-green-500/20 text-green-300',
+    amber: 'bg-amber-500/20 text-amber-300',
+  }
+  return (
+    <div className={`border rounded-xl p-5 ${accents[accent]}`}>
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tagColors[accent]}`}>{tag}</span>
+      </div>
+      <h4 className="text-sm font-semibold text-white mt-1">{title}</h4>
+      <p className="text-sm text-gray-300 leading-relaxed mt-1">{body}</p>
+    </div>
+  )
+}
+
+export default function Clima() {
+  const [forecasts, setForecasts] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await fetchAllForecasts()
+      setForecasts(data)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  if (loading) return (
+    <div className="p-8 text-gray-400 flex items-center gap-2">
+      <RefreshCw size={16} className="animate-spin" /> Cargando pronóstico...
+    </div>
+  )
+
+  if (error) return (
+    <div className="p-8 text-rose-400 flex items-center gap-2">
+      <AlertTriangle size={16} /> {error}
+    </div>
+  )
+
+  return (
+    <div className="p-6 space-y-8 max-w-7xl">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white">Clima y Recomendaciones</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Pronóstico a 7 días por sucursal y acciones sugeridas para no perder venta</p>
+        </div>
+        <button
+          onClick={load}
+          className="flex items-center gap-2 text-sm text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-700"
+        >
+          <RefreshCw size={14} /> Actualizar
+        </button>
+      </div>
+
+      {forecasts.map(({ branch, days }) => (
+        <div key={branch.key} className="space-y-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Thermometer size={16} className="text-blue-400" /> {branch.label}
+          </h2>
+
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {days.map(day => <DayCard key={day.date} day={day} />)}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {buildWeatherRecommendations(branch.label, days).map((rec, i) => (
+              <InsightCard key={i} {...rec} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
