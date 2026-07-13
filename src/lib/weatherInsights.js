@@ -50,6 +50,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · última oportunidad`,
         title: `Prepara el ${fmtDay(days[start - 1].date)}, antes de la lluvia`,
         body: 'Es el mejor momento para vender sellado cerámico, cera o nano-sellante: el auto queda protegido y el barro no se pega tanto cuando llueva. Publica una historia de "última oportunidad antes de la lluvia" y ofrece agendar hora para cuando pare.',
+        whatsapp: '🚗☔ Antes que llegue la lluvia, protege tu auto. Ven hoy y llévate sellado cerámico, cera o nano-sellante con descuento — el barro no se pega igual cuando el auto está protegido. ¿Te agendo una hora hoy?',
       })
     }
 
@@ -58,14 +59,16 @@ export function buildWeatherRecommendations(branchLabel, days) {
         accent: 'rose',
         tag: `${branchLabel} · fin de semana en riesgo`,
         title: `La lluvia pega el fin de semana (${range})`,
-        body: 'El fin de semana suele ser el día de mayor venta — no lo dejes ir sin pelear. Antes del viernes, asegura ingresos con venta anticipada de membresías y bonos, y confirma las horas ya agendadas para que no se caigan. Refuerza en redes los servicios de interior para captar algo de tráfico igual.',
+        body: 'El fin de semana suele ser el día de mayor venta — no lo dejes ir sin pelear. Antes del viernes, asegura ingresos con venta anticipada de membresías y bonos prepago, y confirma las horas ya agendadas para que no se caigan (llama, no esperes a que te avisen). Refuerza en redes los servicios de interior para captar algo de tráfico igual.',
+        whatsapp: 'Hola 👋 esta semana el fin de semana viene con lluvia. Te guardo tu cupo de membresía o bono prepago al precio de hoy si lo tomas antes del viernes — lo usas cuando quieras, sin apuro. ¿Te reservo uno?',
       })
     } else if (len >= 2) {
       recs.push({
         accent: 'amber',
         tag: `${branchLabel} · lluvia`,
         title: `${len} días de lluvia seguidos (${range})`,
-        body: 'Prioriza venta de membresías y bonos prepago llamando a la lista de clientes frecuentes, y ofrece servicios que no dependen de que el auto esté seco: detailing interior, limpieza de tapiz, aromatización, pulido de focos. Aprovecha la baja demanda para mantención de equipos y capacitación del personal, y si algún día la lluvia es más débil, arma una promo relámpago para captar a los que sí se animan a venir.',
+        body: 'Prioriza venta de membresías y bonos prepago llamando a la lista de clientes frecuentes, y ofrece servicios que no dependen de que el auto esté seco: detailing interior, limpieza de tapiz, aromatización, pulido de focos. Si manejas pauta publicitaria (Meta/Google), reduce las palabras clave de lavado exterior estos días y redirige el presupuesto hacia membresías, bonos y servicios de interior. Aprovecha también la baja demanda para mantención de equipos, capacitación del personal y pedir reseñas a los clientes satisfechos que sí alcancen a venir. Si algún día la lluvia es más débil, arma una promo relámpago para captar a los que se animan a venir igual.',
+        whatsapp: 'Hola! Esta semana estamos con lluvia 🌧️ Aprovecha y renueva tu membresía o compra tu bono prepago — lo usas cuando quieras, no vence por la lluvia. ¿Te interesa que te cuente los planes?',
       })
     } else {
       recs.push({
@@ -82,6 +85,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · alerta`,
         title: `Riesgo de tormenta o granizo en ${range}`,
         body: 'Puede haber tormenta eléctrica, granizo o chubascos intensos. Evalúa resguardar equipos y autos en espera bajo techo, y si vas a operar con horario reducido, avísalo en redes sociales para que los clientes no lleguen y se encuentren cerrado.',
+        whatsapp: '⚠️ Por pronóstico de tormenta/granizo, hoy trabajamos con horario reducido por seguridad. Te esperamos apenas mejore el clima. ¡Gracias por tu comprensión!',
       })
     }
 
@@ -92,6 +96,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · post-lluvia`,
         title: `Repunte esperado el ${fmtDay(days[nextIdx].date)}`,
         body: 'Primer día seco tras la lluvia: los autos llegan embarrados y con restos de barro/sal en la carrocería y el chasis. Agenda desde ya lavado de bajos (antibarro) como servicio estrella, arma un combo "post-lluvia" (lavado + bajos + aspirado interior) con un pequeño descuento para subir el ticket promedio, un descuento madrugador para repartir la fila durante el día, y refuerza la dotación de personal porque va a haber más demanda de la normal.',
+        whatsapp: '☀️ ¡Ya paró la lluvia! Turnos limitados hoy para lavado + antibarro + aspirado interior. Tu auto se lo merece después de esta semana. Reserva tu hora ahora 👇',
       })
     }
   })
@@ -102,6 +107,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
       tag: `${branchLabel} · sin lluvia`,
       title: 'Semana despejada',
       body: 'No se esperan lluvias relevantes esta semana. Es el momento ideal para invertir en publicidad y contenido en RRSS los días de mayor tráfico histórico, y para empujar servicios exteriores de mayor ticket (pulido, sellado cerámico, cera) que rinden mejor con el auto seco.',
+      whatsapp: '☀️ Semana ideal para dejar tu auto como nuevo — pulido, sellado cerámico o cera con el clima a favor. Agenda tu hora aquí 👇',
     })
   }
 

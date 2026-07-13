@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudRain, CloudSnow, CloudLightning,
-  Droplets, Thermometer, RefreshCw, AlertTriangle,
+  Droplets, Thermometer, RefreshCw, AlertTriangle, MessageCircle, Check,
 } from 'lucide-react'
 import { fetchAllForecasts, weatherInfo } from '../lib/weather'
 import { buildWeatherRecommendations, buildCrossBranchInsight } from '../lib/weatherInsights'
@@ -34,7 +34,24 @@ function DayCard({ day }) {
   )
 }
 
-function InsightCard({ tag, title, body, accent = 'blue' }) {
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={async () => {
+        await navigator.clipboard.writeText(text)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      className="flex items-center gap-1.5 text-xs font-medium text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 hover:bg-gray-700 shrink-0"
+    >
+      {copied ? <Check size={12} className="text-green-400" /> : <MessageCircle size={12} />}
+      {copied ? 'Copiado' : 'Copiar mensaje'}
+    </button>
+  )
+}
+
+function InsightCard({ tag, title, body, whatsapp, accent = 'blue' }) {
   const accents = {
     blue: 'border-blue-500/30 bg-blue-500/5',
     green: 'border-green-500/30 bg-green-500/5',
@@ -54,6 +71,14 @@ function InsightCard({ tag, title, body, accent = 'blue' }) {
       </div>
       <h4 className="text-sm font-semibold text-white mt-1">{title}</h4>
       <p className="text-sm text-gray-300 leading-relaxed mt-1">{body}</p>
+      {whatsapp && (
+        <div className="mt-3 bg-black/20 border border-white/5 rounded-lg p-3">
+          <p className="text-xs text-gray-400 italic leading-relaxed">"{whatsapp}"</p>
+          <div className="mt-2">
+            <CopyButton text={whatsapp} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
