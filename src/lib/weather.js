@@ -39,6 +39,12 @@ export function isRainyDay({ precipProb, precipMm }) {
   return precipProb >= 50 || precipMm >= 1
 }
 
+// Tormenta eléctrica, granizo o lluvia/chubascos intensos
+const SEVERE_CODES = new Set([65, 66, 67, 82, 95, 96, 99])
+export function isSevereWeather(code) {
+  return SEVERE_CODES.has(code)
+}
+
 export async function fetchBranchForecast(branch) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${branch.lat}&longitude=${branch.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&timezone=America%2FSantiago&forecast_days=7`
   const res = await fetch(url)

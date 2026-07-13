@@ -4,7 +4,7 @@ import {
   Droplets, Thermometer, RefreshCw, AlertTriangle,
 } from 'lucide-react'
 import { fetchAllForecasts, weatherInfo } from '../lib/weather'
-import { buildWeatherRecommendations } from '../lib/weatherInsights'
+import { buildWeatherRecommendations, buildCrossBranchInsight } from '../lib/weatherInsights'
 
 const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
@@ -39,11 +39,13 @@ function InsightCard({ tag, title, body, accent = 'blue' }) {
     blue: 'border-blue-500/30 bg-blue-500/5',
     green: 'border-green-500/30 bg-green-500/5',
     amber: 'border-amber-500/30 bg-amber-500/5',
+    rose: 'border-rose-500/30 bg-rose-500/5',
   }
   const tagColors = {
     blue: 'bg-blue-500/20 text-blue-300',
     green: 'bg-green-500/20 text-green-300',
     amber: 'bg-amber-500/20 text-amber-300',
+    rose: 'bg-rose-500/20 text-rose-300',
   }
   return (
     <div className={`border rounded-xl p-5 ${accents[accent]}`}>
@@ -102,6 +104,11 @@ export default function Clima() {
           <RefreshCw size={14} /> Actualizar
         </button>
       </div>
+
+      {(() => {
+        const crossInsight = buildCrossBranchInsight(forecasts)
+        return crossInsight ? <InsightCard {...crossInsight} /> : null
+      })()}
 
       {forecasts.map(({ branch, days }) => (
         <div key={branch.key} className="space-y-4">
