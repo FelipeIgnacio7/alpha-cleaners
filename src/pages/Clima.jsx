@@ -34,10 +34,7 @@ function DayCard({ day }) {
   )
 }
 
-function copyToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text)
-  }
+function copyWithFallback(text) {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.style.position = 'fixed'
@@ -46,7 +43,18 @@ function copyToClipboard(text) {
   textarea.select()
   document.execCommand('copy')
   document.body.removeChild(textarea)
-  return Promise.resolve()
+}
+
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+  } catch {
+    // permiso denegado o API no disponible; se intenta el fallback
+  }
+  copyWithFallback(text)
 }
 
 function CopyButton({ text }) {
