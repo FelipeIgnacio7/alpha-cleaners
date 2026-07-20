@@ -8,7 +8,8 @@ import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import {
   TrendingUp, TrendingDown, Zap, Target, Star, Users,
   Calendar, Award, Lightbulb, BarChart2, ShoppingBag, ArrowRight, Building2,
-  Megaphone, Activity, Clock, AlertTriangle, Crown, UserX, UserPlus, RefreshCw
+  Megaphone, Activity, Clock, AlertTriangle, Crown, UserX, UserPlus, RefreshCw,
+  DollarSign, Eye, MousePointerClick, MessageSquare
 } from 'lucide-react'
 
 ChartJS.register(
@@ -16,10 +17,24 @@ ChartJS.register(
   ArcElement, Title, Tooltip, Legend, Filler
 )
 
-const supabase = createClient(
-  'https://kkvaoknpwpnbdymvvqce.supabase.co',
-  'sb_publishable_m2uJzHnl6SStzQtN-BHSAA_DYzonx0K'
-)
+const SUPABASE_URL = 'https://kkvaoknpwpnbdymvvqce.supabase.co'
+const SUPABASE_ANON_KEY = 'sb_publishable_m2uJzHnl6SStzQtN-BHSAA_DYzonx0K'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+async function fetchMetaAdsInsights({ datePreset = 'maximum', level = 'account' } = {}) {
+  const res = await fetch(
+    `${SUPABASE_URL}/functions/v1/meta-ads-insights?date_preset=${datePreset}&level=${level}`,
+    { headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  )
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+  return json.data ?? []
+}
+
+function getActionValue(actions, type) {
+  return Number(actions?.find(a => a.action_type === type)?.value || 0)
+}
 
 const PREMIUM_BRANDS = new Set([
   'BMW', 'Mercedes-Benz', 'Mercedes Benz', 'Mercedes', 'Audi', 'Porsche',
@@ -184,6 +199,130 @@ function AdInsightCard({ icon: Icon, title, body, accion, prioridad, canal, copy
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Recomendaciones de marketing a partir de los insights reales de Meta Ads
+function buildAdsRecommendations({ spend, ctr, cpc, actions, hasRecentActivity }, topServiceName) {
+  const recs = []
+  const connections = getActionValue(actions, 'onsite_conversion.total_messaging_connection')
+  const leads = getActionValue(actions, 'lead') || getActionValue(actions, 'onsite_web_lead')
+  const postEngagement = getActionValue(actions, 'post_engagement')
+  const videoViews = getActionValue(actions, 'video_view')
+  const ctrNum = parseFloat(ctr) || 0
+  const cpcNum = parseFloat(cpc) || 0
+
+  if (!hasRecentActivity) {
+    recs.push({
+      icon: RefreshCw, accent: 'rose', prioridad: 'Alta', canal: 'Meta Ads Manager',
+      title: 'No tienes campañas activas ahora mismo',
+      body: `Históricamente tu cuenta gastó ${fmtCLP(spend)} con buena eficiencia (CTR ${ctrNum.toFixed(2)}%, CPC ${fmtCLP(cpcNum)}). Con las campañas pausadas, hoy dependes 100% del tráfico orgánico.`,
+      accion: topServiceName
+        ? `Reactiva una campaña simple promocionando "${topServiceName}" — es el servicio con mejor desempeño este mes.`
+        : 'Reactiva al menos una campaña de bajo presupuesto para no perder el pixel/aprendizaje de la cuenta.',
+      copy: topServiceName ? `"${topServiceName} en Alpha Cleaners. Reserva tu hora hoy 🚗✨"` : undefined,
+    })
+  }
+
+  if (connections >= 20 && leads >= 0) {
+    const rate = connections > 0 ? (leads / connections) * 100 : 0
+    if (rate < 15) {
+      recs.push({
+        icon: MessageSquare, accent: 'amber', prioridad: 'Alta', canal: 'WhatsApp / Messenger',
+        title: 'El cuello de botella no es el anuncio, es el chat',
+        body: `${connections.toLocaleString('es-CL')} conversaciones iniciadas por publicidad, pero solo ${leads} quedaron registradas como lead (${rate.toFixed(1)}%). La gente escribe y se pierde en el camino.`,
+        accion: 'Responde en los primeros 5 minutos, usa un guion fijo de cierre ("¿te agendo para hoy o mañana?") y registra cada conversación como lead aunque no compre altiro.',
+      })
+    }
+  }
+
+  if (hasRecentActivity && ctrNum > 0 && cpcNum > 0 && cpcNum < 100) {
+    recs.push({
+      icon: TrendingUp, accent: 'green', prioridad: 'Media', canal: 'Meta Ads Manager',
+      title: 'Tu costo por clic está muy sano',
+      body: `CPC de ${fmtCLP(cpcNum)} y CTR de ${ctrNum.toFixed(2)}% son señales de que la cuenta tiene buen historial de aprendizaje. Es una buena señal para escalar presupuesto sin perder eficiencia.`,
+      accion: 'Sube el presupuesto diario en un 20-30% y mantén la misma segmentación — el algoritmo ya validó esta audiencia.',
+    })
+  }
+
+  if (postEngagement > 5000 || videoViews > 5000) {
+    recs.push({
+      icon: Eye, accent: 'purple', prioridad: 'Media', canal: 'Meta Ads (remarketing)',
+      title: 'Tienes una audiencia tibia sin explotar',
+      body: `${postEngagement.toLocaleString('es-CL')} interacciones y ${videoViews.toLocaleString('es-CL')} vistas de video acumuladas. Esas personas ya conocen la marca pero no todas compraron.`,
+      accion: 'Crea una campaña de remarketing (objetivo mensajes/conversiones) apuntando solo a quienes interactuaron o vieron video en los últimos 90 días — es más barata que audiencia fría.',
+    })
+  }
+
+  return recs
+}
+
+function MetaAdsPanel({ topServiceName }) {
+  const [data, setData] = useState(null)
+  const [hasRecentActivity, setHasRecentActivity] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const [lifetime, recent] = await Promise.all([
+          fetchMetaAdsInsights({ datePreset: 'maximum', level: 'account' }),
+          fetchMetaAdsInsights({ datePreset: 'last_30d', level: 'account' }),
+        ])
+        if (cancelled) return
+        setData(lifetime[0] || null)
+        setHasRecentActivity((recent[0]?.spend ?? 0) > 0)
+      } catch (e) {
+        if (!cancelled) setError(e.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center text-gray-500 text-sm flex items-center justify-center gap-2 mb-8">
+      <RefreshCw size={14} className="animate-spin" /> Cargando datos de Meta Ads...
+    </div>
+  )
+
+  if (error) return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center text-rose-400 text-sm mb-8">
+      No se pudo conectar con Meta Ads: {error}
+    </div>
+  )
+
+  if (!data) return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center text-gray-500 text-sm mb-8">
+      Sin datos de Meta Ads todavía.
+    </div>
+  )
+
+  const recs = buildAdsRecommendations({ ...data, hasRecentActivity }, topServiceName)
+
+  return (
+    <div className="mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <StatCard icon={DollarSign} label="Gasto histórico" value={fmtCLP(data.spend)} color="blue" />
+        <StatCard icon={Eye} label="Impresiones" value={Number(data.impressions).toLocaleString('es-CL')} color="purple" />
+        <StatCard icon={MousePointerClick} label="Clics" value={Number(data.clicks).toLocaleString('es-CL')} sub={`CTR ${parseFloat(data.ctr).toFixed(2)}%`} color="green" />
+        <StatCard icon={Users} label="Alcance" value={Number(data.reach).toLocaleString('es-CL')} sub={`CPC ${fmtCLP(parseFloat(data.cpc))}`} color="amber" />
+      </div>
+      {!hasRecentActivity && (
+        <p className="text-xs text-rose-400 mb-4">⚠ Sin gasto en los últimos 30 días — campañas pausadas.</p>
+      )}
+      {recs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {recs.map((rec, i) => <AdInsightCard key={i} {...rec} />)}
+        </div>
+      )}
     </div>
   )
 }
@@ -1241,6 +1380,10 @@ export default function Analytics() {
           return (
         <>
         {ac && <p className="text-xs text-gray-500 mb-5">{ac.isCurrentMonth ? 'Comparación acumulada día a día' : 'Mes completo'} · {ac.mCurLabel} vs {ac.mPrevLabel}</p>}
+
+        {/* Meta Ads en vivo */}
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Meta Ads — cuenta publicitaria</h3>
+        <MetaAdsPanel topServiceName={ac?.promoDecision?.byProfitability?.name || ac?.promoDecision?.growing?.name} />
 
         {/* A. Pulso del mes */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Pulso del mes (días 1–{ac.hoyDia} · semana {ac.semanaActual} de {Math.ceil(ac.diasEnMesCur / 7)})</h3>
