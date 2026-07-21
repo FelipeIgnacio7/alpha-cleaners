@@ -95,6 +95,13 @@ function normalizeServicio(raw) {
   return unique.map(p => SVC_CANONICAL[p] || capFirst(p)).join(' | ')
 }
 
+// Una línea de "Membresía" es el canje/uso de una membresía ya pagada, NO una
+// venta ni una suscripción nueva (ticket muy bajo). No debe tratarse como un
+// servicio que crece/decae ni recomendarse para publicidad pagada.
+function isMembershipService(name) {
+  return /membres[ií]a/i.test(name || '')
+}
+
 function StatCard({ icon: Icon, label, value, sub, color = 'blue', trend }) {
   const colors = {
     blue: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
@@ -471,9 +478,9 @@ function buildIntelligence(rows, chosenMonthKey) {
       return { name, curCount: c.count, prevCount: p.count, ticket: c.count > 0 ? Math.round(c.rev / c.count) : 0, delta }
     })
     .filter(s => s.curCount >= 2 || s.prevCount >= 2)
-  const svcWinning = svcComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
-  const svcLosing = svcComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
-  const promoByProfit = Object.entries(svcCur).filter(([, v]) => v.count >= 3).map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count })).sort((a, b) => b.ticket - a.ticket)[0] || null
+  const svcWinning = svcComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2 && !isMembershipService(s.name)).sort((a, b) => b.delta - a.delta).slice(0, 3)
+  const svcLosing = svcComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2 && !isMembershipService(s.name)).sort((a, b) => a.delta - b.delta).slice(0, 3)
+  const promoByProfit = Object.entries(svcCur).filter(([name, v]) => v.count >= 3 && !isMembershipService(name)).map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count })).sort((a, b) => b.ticket - a.ticket)[0] || null
   const weeklyStatus = acumRevDelta >= 5 ? 'adelante' : acumRevDelta <= -5 ? 'atras' : 'par'
 
   const ac = {
@@ -679,9 +686,9 @@ export default function Analytics() {
           delta: p.count > 0 ? ((c.count - p.count) / p.count) * 100 : null }
       }).filter(s => s.curCount >= 2 || s.prevCount >= 2).sort((a, b) => b.curRev - a.curRev).slice(0, 10)
 
-      const missedOpps = svcComp.filter(s => s.delta !== null && s.delta < -10 && s.prevCount >= 4)
+      const missedOpps = svcComp.filter(s => s.delta !== null && s.delta < -10 && s.prevCount >= 4 && !isMembershipService(s.name))
         .sort((a, b) => a.delta - b.delta).slice(0, 3)
-      const rising = svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 4)
+      const rising = svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 4 && !isMembershipService(s.name))
         .sort((a, b) => b.delta - a.delta).slice(0, 2)
 
       // Day-of-week normalized
@@ -867,11 +874,11 @@ export default function Analytics() {
       })
       .filter(s => s.curCount >= 2 || s.prevCount >= 2)
 
-    const svcWinning = svcAccumComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2).sort((a, b) => b.delta - a.delta).slice(0, 3)
-    const svcLosing  = svcAccumComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2).sort((a, b) => a.delta - b.delta).slice(0, 3)
+    const svcWinning = svcAccumComp.filter(s => s.delta !== null && s.delta > 5 && s.curCount >= 2 && !isMembershipService(s.name)).sort((a, b) => b.delta - a.delta).slice(0, 3)
+    const svcLosing  = svcAccumComp.filter(s => s.delta !== null && s.delta < -5 && s.prevCount >= 2 && !isMembershipService(s.name)).sort((a, b) => a.delta - b.delta).slice(0, 3)
 
     const promoByProfitability = Object.entries(svcCur)
-      .filter(([, v]) => v.count >= 3)
+      .filter(([name, v]) => v.count >= 3 && !isMembershipService(name))
       .map(([name, v]) => ({ name, ticket: Math.round(v.rev / v.count), count: v.count }))
       .sort((a, b) => b.ticket - a.ticket)[0] || null
 
@@ -1797,18 +1804,6 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* D. Meta Ads placeholder */}
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Análisis de Anuncios Meta (Instagram + Facebook)</h3>
-        <div className="bg-gray-900 border border-dashed border-gray-700 rounded-xl p-8 text-center">
-          <Activity size={24} className="text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-400 font-medium mb-1">Esperando datos de Meta Ads Manager</p>
-          <p className="text-xs text-gray-500 mb-4">Exporta el CSV desde Ads Manager con las columnas: Campaña, Conjunto, Anuncio, Fecha, Impresiones, Alcance, Clics, CTR, CPC, Gasto, Resultados, Frecuencia, Plataforma/Ubicación, ID Creativo</p>
-          <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-600">
-            {['CTR por campaña', 'CPC vs resultado', 'Frecuencia de saturación', 'Mejor plataforma', 'Retorno por creativo'].map(t => (
-              <span key={t} className="bg-gray-800 px-2 py-1 rounded-full">{t}</span>
-            ))}
-          </div>
-        </div>
         </>
           )
         })()}
@@ -1850,8 +1845,8 @@ export default function Analytics() {
             borderWidth: 2, tension: 0.4, pointRadius: 3,
           }]
         }
-        const missedCurico = cc.svcComp.filter(s => s.delta !== null && s.delta < -15 && s.prevCount >= 3).slice(0, 3)
-        const risingCurico = cc.svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 3).slice(0, 2)
+        const missedCurico = cc.svcComp.filter(s => s.delta !== null && s.delta < -15 && s.prevCount >= 3 && !isMembershipService(s.name)).slice(0, 3)
+        const risingCurico = cc.svcComp.filter(s => s.delta !== null && s.delta > 15 && s.curCount >= 3 && !isMembershipService(s.name)).slice(0, 2)
         const bestDow = cc.dowComp.filter(d => d.day !== 'Domingo' && d.delta !== null).sort((a, b) => b.delta - a.delta)[0]
         return (
           <div className="space-y-5">
