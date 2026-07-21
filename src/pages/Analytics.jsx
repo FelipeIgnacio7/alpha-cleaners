@@ -706,13 +706,26 @@ export default function Analytics() {
         return { day, curAvg, prevAvg, delta: prevAvg > 0 ? ((curAvg - prevAvg) / prevAvg) * 100 : null }
       })
 
-      // Retention
-      const prevPats = new Set(Object.keys(dPrev.patMap))
-      const curPatKeys = Object.keys(dCur.patMap)
-      const retained = curPatKeys.filter(p => prevPats.has(p)).length
-      const newPat   = curPatKeys.filter(p => !prevPats.has(p)).length
-      const retPct   = Object.keys(dPrev.patMap).length > 0
-        ? Math.round((retained / Object.keys(dPrev.patMap).length) * 100) : 0
+      // Recurrencia (honesta): un lavado de autos se compra ~1 vez al mes o menos,
+      // así que medir "volvió el mes calendario siguiente" siempre da ~4% y es falso.
+      // En su lugar: de los clientes de este mes, cuántos son recurrentes (tenían una
+      // visita previa a este mes) vs nuevos (primera visita histórica en el mes), y un
+      // pool de reactivación con ventana realista (sin volver hace 90+ días).
+      const patFirstMs = {}, patLastMs = {}
+      localRows.forEach(t => {
+        if (!t.patente) return
+        const p = t.patente.trim().toUpperCase()
+        const ms = new Date(t.fecha).getTime()
+        if (patFirstMs[p] === undefined || ms < patFirstMs[p]) patFirstMs[p] = ms
+        if (patLastMs[p] === undefined || ms > patLastMs[p]) patLastMs[p] = ms
+      })
+      const curMonthStartMs = new Date(+mCur.slice(0, 4), +mCur.slice(5) - 1, 1).getTime()
+      const curCustomers = [...new Set(Object.keys(dCur.patMap).map(k => k.trim().toUpperCase()))]
+      const recurrentes = curCustomers.filter(p => patFirstMs[p] < curMonthStartMs).length
+      const nuevos = curCustomers.length - recurrentes
+      const repeatRate = curCustomers.length > 0 ? Math.round((recurrentes / curCustomers.length) * 100) : 0
+      const nowMs = Date.now()
+      const reactivar = Object.keys(patLastMs).filter(p => (nowMs - patLastMs[p]) / 86400000 > 90).length
 
       const trend = months.map(k => ({
         label: MONTHS_ES_FULL[parseInt(k.slice(5)) - 1].slice(0, 3) + ' ' + k.slice(2, 4),
@@ -729,7 +742,7 @@ export default function Analytics() {
         cntDelta:    dPrev.count  > 0 ? ((dCur.count  - dPrev.count)  / dPrev.count)  * 100 : null,
         ticketDelta: dPrev.ticket > 0 ? ((dCur.ticket - dPrev.ticket) / dPrev.ticket) * 100 : null,
         svcComp, missedOpps, rising, dowComp,
-        retained, newPat, retPct,
+        recurrentes, nuevos, repeatRate, reactivar,
         trend,
       }
     }
@@ -2248,46 +2261,46 @@ export default function Analytics() {
               </div>
             </div>
 
-            {/* Retention */}
+            {/* Recurrencia */}
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
                 <Users size={14} className="text-green-400" />
-                Clientes Fontova: retención y nuevos
+                Clientes Fontova: recurrencia y nuevos
               </h3>
+              <p className="text-xs text-gray-500 mb-4">Base: clientes de {fm.labelCur}. Recurrente = ya tenía visitas antes de este mes.</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
                   <div>
-                    <p className="text-xl font-bold text-green-400">{fm.retained.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">Clientes que volvieron</p>
-                    <p className="text-xs text-gray-500">ya estaban en {fm.labelPrev}</p>
+                    <p className="text-xl font-bold text-green-400">{fm.recurrentes.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">Clientes recurrentes</p>
+                    <p className="text-xs text-gray-500">ya te conocían</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-green-300">{fm.retPct}%</p>
-                    <p className="text-xs text-gray-500">retención</p>
+                    <p className="text-sm font-bold text-green-300">{fm.repeatRate}%</p>
+                    <p className="text-xs text-gray-500">recurrencia</p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                   <div>
-                    <p className="text-xl font-bold text-blue-400">{fm.newPat.toLocaleString()}</p>
+                    <p className="text-xl font-bold text-blue-400">{fm.nuevos.toLocaleString()}</p>
                     <p className="text-xs text-gray-400">Clientes nuevos</p>
-                    <p className="text-xs text-gray-500">no estaban en {fm.labelPrev}</p>
+                    <p className="text-xs text-gray-500">primera visita este mes</p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-blue-300">
-                      {Object.keys(fm.dCur.patMap).length > 0 ? Math.round((fm.newPat / Object.keys(fm.dCur.patMap).length) * 100) : 0}%
+                      {(fm.recurrentes + fm.nuevos) > 0 ? Math.round((fm.nuevos / (fm.recurrentes + fm.nuevos)) * 100) : 0}%
                     </p>
                     <p className="text-xs text-gray-500">del total</p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                   <div>
-                    <p className="text-xl font-bold text-rose-400">{Math.max(0, Object.keys(fm.dPrev.patMap).length - fm.retained).toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">No volvieron</p>
-                    <p className="text-xs text-gray-500">estaban en {fm.labelPrev}</p>
+                    <p className="text-xl font-bold text-amber-400">{fm.reactivar.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">Por reactivar</p>
+                    <p className="text-xs text-gray-500">sin volver hace 90+ días</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-rose-300">{100 - fm.retPct}%</p>
-                    <p className="text-xs text-gray-500">tasa pérdida</p>
+                    <p className="text-xs text-amber-300 font-medium">oportunidad</p>
                   </div>
                 </div>
               </div>
