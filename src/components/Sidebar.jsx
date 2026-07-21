@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, TrendingUp, Building2, Receipt, Droplets, Lightbulb, CloudRain } from 'lucide-react'
+import { LayoutDashboard, TrendingUp, Building2, Receipt, Droplets, Lightbulb, CloudRain, Tag } from 'lucide-react'
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -7,6 +7,7 @@ const links = [
   { to: '/subarriendos', icon: Building2, label: 'Subarriendos' },
   { to: '/gastos', icon: Receipt, label: 'Gastos' },
   { to: '/analytics', icon: Lightbulb, label: 'Inteligencia' },
+  { to: '/pricing', icon: Tag, label: 'Pricing' },
   { to: '/clima', icon: CloudRain, label: 'Clima' },
 ]
 

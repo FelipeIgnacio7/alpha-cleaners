@@ -5,6 +5,7 @@ import Ingresos from './pages/Ingresos'
 import Subarriendos from './pages/Subarriendos'
 import Gastos from './pages/Gastos'
 import Analytics from './pages/Analytics'
+import Pricing from './pages/Pricing'
 import Clima from './pages/Clima'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/subarriendos" element={<Subarriendos />} />
             <Route path="/gastos" element={<Gastos />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/pricing" element={<Pricing />} />
             <Route path="/clima" element={<Clima />} />
           </Routes>
         </main>
