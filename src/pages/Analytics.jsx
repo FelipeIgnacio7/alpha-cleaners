@@ -501,6 +501,7 @@ export default function Analytics() {
   const [local, setLocal] = useState('all')
   const [intelMonth, setIntelMonth] = useState(null)
   const [intelLocal, setIntelLocal] = useState('all')
+  const [intelTab, setIntelTab] = useState('comercial')
 
   useEffect(() => {
     async function load() {
@@ -1085,6 +1086,28 @@ export default function Analytics() {
         </select>
       </div>
 
+      {/* Tabs de navegación */}
+      <div className="flex items-center gap-1 border-b border-gray-800 overflow-x-auto">
+        {[
+          { id: 'comercial', label: 'Comercial' },
+          { id: 'marketing', label: 'Marketing & Ads' },
+          { id: 'clientes', label: 'Clientes' },
+          { id: 'sucursales', label: 'Sucursales' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setIntelTab(t.id)}
+            className={`text-sm font-medium px-4 py-2 border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              intelTab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ===== TAB: COMERCIAL ===== */}
+      {intelTab === 'comercial' && (<>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -1285,6 +1308,10 @@ export default function Analytics() {
         </div>
       </div>
 
+      </>)}
+
+      {/* ===== TAB: MARKETING & ADS (ideas + parte publicitaria) ===== */}
+      {intelTab === 'marketing' && (<>
       {/* Marketing Insights */}
       <div>
         <div className="flex items-center gap-2 mb-4">
@@ -1345,12 +1372,16 @@ export default function Analytics() {
         </div>
       </div>
 
+      </>)}
+
+      {/* ===== Bloque publicitario: compartido entre Marketing y Clientes ===== */}
+      {(intelTab === 'marketing' || intelTab === 'clientes') && (<>
       {/* ── INTELIGENCIA PUBLICITARIA ── */}
       <div>
         <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <Megaphone size={16} className="text-violet-400" />
-            <h2 className="text-sm font-semibold text-white">Inteligencia Publicitaria</h2>
+            <h2 className="text-sm font-semibold text-white">{intelTab === 'clientes' ? 'Clientes: segmentos y membresías' : 'Inteligencia Publicitaria'}</h2>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg p-0.5">
@@ -1399,6 +1430,7 @@ export default function Analytics() {
           const ticketProm = intel.ticketProm
           return (
         <>
+        {intelTab === 'marketing' && (<>
         {ac && <p className="text-xs text-gray-500 mb-5">{ac.isCurrentMonth ? 'Comparación acumulada día a día' : 'Mes completo'} · {ac.mCurLabel} vs {ac.mPrevLabel}</p>}
 
         {/* Meta Ads en vivo */}
@@ -1572,6 +1604,9 @@ export default function Analytics() {
           )}
         </div>
 
+        </>)}
+
+        {intelTab === 'clientes' && (<>
         {/* B. Segmentos RFM */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Segmentos de clientes (RFM)</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
@@ -1741,6 +1776,9 @@ export default function Analytics() {
           </>
         )}
 
+        </>)}
+
+        {intelTab === 'marketing' && (<>
         {/* D. Timing y Forecast */}
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Timing y Proyección</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
@@ -1816,12 +1854,16 @@ export default function Analytics() {
             </div>
           </div>
         </div>
+        </>)}
 
         </>
           )
         })()}
       </div>
+      </>)}
 
+      {/* ===== TAB: CLIENTES (continuación) — Fidelización ===== */}
+      {intelTab === 'clientes' && (<>
       {/* Loyalty table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
@@ -1843,6 +1885,10 @@ export default function Analytics() {
         </div>
       </div>
 
+      </>)}
+
+      {/* ===== TAB: SUCURSALES ===== */}
+      {intelTab === 'sucursales' && (<>
       {/* ── CURICÓ: MES ANTERIOR VS ÚLTIMO MES ── */}
       {a.curicoComp && (() => {
         const cc = a.curicoComp
@@ -2457,6 +2503,7 @@ export default function Analytics() {
           </div>
         )
       })()}
+      </>)}
     </div>
   )
 }
