@@ -18,6 +18,12 @@ export function titleCase(s) {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
+// Las membresías son canjes de un plan ya pagado, no un precio de venta:
+// su "monto" ($0 a valores erráticos) distorsiona el análisis de pricing.
+function isMembership(name) {
+  return /membres[ií]a/i.test(name || '')
+}
+
 // Divide un tipo_servicio en sus segmentos base (lowercase, sin duplicados)
 export function parseSegments(tipo) {
   if (!tipo) return []
@@ -93,7 +99,7 @@ export function buildPricingAnalysis(txns) {
       revenue: Math.round(st.avg * d.prices.length),
       elasticity: estimateElasticity(monthly),
     }
-  }).filter(s => s.count >= 10).sort((a, b) => b.revenue - a.revenue)
+  }).filter(s => s.count >= 10 && !isMembership(s.name)).sort((a, b) => b.revenue - a.revenue)
 
   const totalRev = serviceTable.reduce((a, s) => a + s.revenue, 0)
   serviceTable.forEach(s => { s.revShare = totalRev > 0 ? (s.revenue / totalRev) * 100 : 0 })
@@ -114,7 +120,7 @@ export function buildPricingAnalysis(txns) {
     const stdAvg = d.std.reduce((a, b) => a + b, 0) / d.std.length
     const gap = premAvg - stdAvg
     return { name, titled: titleCase(name), premAvg: Math.round(premAvg), stdAvg: Math.round(stdAvg), gap: Math.round(gap), premCount: d.prem.length }
-  }).filter(o => o && o.gap < o.stdAvg * 0.08) // premium paga ≤8% más que estándar = oportunidad
+  }).filter(o => o && !isMembership(o.name) && o.gap < o.stdAvg * 0.08) // premium paga ≤8% más que estándar = oportunidad
     .sort((a, b) => b.premCount - a.premCount)
 
   // ── Extras / upsell: attach rate y lift de ticket ──

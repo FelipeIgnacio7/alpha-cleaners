@@ -183,7 +183,7 @@ export default function Pricing() {
           {a.premiumOpps.slice(0, 1).map(o => (
             <RecCard key={o.name} icon={Crown} accent="amber" tag="Recargo premium"
               title={`${o.titled}: los autos premium pagan casi lo mismo`}
-              body={`En ${o.titled}, los autos de gama alta pagan ${fmtCLP(o.premAvg)} vs ${fmtCLP(o.stdAvg)} del estándar (solo ${fmtCLP(Math.max(0, o.gap))} más). Un recargo "Premium Care" de $2.000–3.000 sobre estos ${o.premCount.toLocaleString()} servicios se acepta sin fricción y cae directo al margen.`} />
+              body={`En ${o.titled}, los autos de gama alta pagan ${fmtCLP(o.premAvg)} vs ${fmtCLP(o.stdAvg)} del estándar — ${o.gap > 0 ? `apenas ${fmtCLP(o.gap)} más` : 'incluso un poco menos'}. Un recargo "Premium Care" de $2.000–3.000 sobre estos ${o.premCount.toLocaleString()} servicios se acepta sin fricción y cae directo al margen.`} />
           ))}
           {a.upsellOpps.slice(0, 1).map(o => (
             <RecCard key={o.addon} icon={ArrowUpRight} accent="green" tag="Upsell en caja"
