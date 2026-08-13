@@ -101,7 +101,13 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
 
 function FilaLocal({ local, pagos, mes, anio, saldoArrastrado, onAbonar, onDeleteAbono }) {
   const [expanded, setExpanded] = useState(false)
-  const montoAcordado = (MONTOS_ACORDADOS[local.id] ?? 0) + (saldoArrastrado ?? 0)
+  // Si ya hay pagos registrados para este período, el acordado real queda
+  // guardado en esos registros (puede ser distinto al monto vigente hoy,
+  // ej. una deuda de un mes anterior con otro monto). Si no hay pagos
+  // todavía, se usa el monto acordado vigente + saldo arrastrado.
+  const montoAcordado = pagos.length > 0
+    ? Math.max(...pagos.map(p => Number(p.monto_acordado ?? 0)))
+    : (MONTOS_ACORDADOS[local.id] ?? 0) + (saldoArrastrado ?? 0)
   const totalPagado = pagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
   const pct = montoAcordado > 0 ? Math.min((totalPagado / montoAcordado) * 100, 100) : 0
   const saldo = montoAcordado - totalPagado
@@ -296,7 +302,12 @@ export default function Subarriendos() {
           local={modal}
           mes={mes}
           anio={anio}
-          montoAcordado={(MONTOS_ACORDADOS[modal.id] ?? 0) + (saldosArrastrados[modal.id] ?? 0)}
+          montoAcordado={(() => {
+            const pagosLocal = pagos.filter(p => p.local_id === modal.id)
+            return pagosLocal.length > 0
+              ? Math.max(...pagosLocal.map(p => Number(p.monto_acordado ?? 0)))
+              : (MONTOS_ACORDADOS[modal.id] ?? 0) + (saldosArrastrados[modal.id] ?? 0)
+          })()}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); loadAll() }}
         />
