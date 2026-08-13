@@ -188,16 +188,23 @@ export default function Subarriendos() {
     setLoading(true)
     const mesPrev = mes === 1 ? 12 : mes - 1
     const anioPrev = mes === 1 ? anio - 1 : anio
-    const [{ data: loc }, { data: pag }, { data: pagPrev }] = await Promise.all([
+    const [{ data: loc }, { data: pag }, { data: pagPrev }, { data: historial }] = await Promise.all([
       supabase.from('locales').select('*').eq('tipo', 'subarrendado').order('id'),
       supabase.from('pagos_subarriendo').select('*').eq('mes_periodo', mes).eq('anio_periodo', anio).order('fecha_pago'),
       supabase.from('pagos_subarriendo').select('local_id, monto_pagado').eq('mes_periodo', mesPrev).eq('anio_periodo', anioPrev),
+      // ¿Hubo algún período anterior efectivamente trackeado? (para no inventar deuda de meses sin datos)
+      supabase.from('pagos_subarriendo').select('local_id, anio_periodo, mes_periodo')
+        .or(`anio_periodo.lt.${anioPrev},and(anio_periodo.eq.${anioPrev},mes_periodo.lte.${mesPrev})`),
     ])
     setLocales(loc ?? [])
     setPagos(pag ?? [])
-    // Saldo no pagado del mes anterior, se suma al acordado del mes actual
+    // Saldo no pagado del mes anterior, se suma al acordado del mes actual —
+    // solo si ese mes anterior tiene algún registro (evita inventar deuda
+    // cuando el local simplemente no se había empezado a trackear todavía).
+    const localesConHistorial = new Set((historial ?? []).map(h => h.local_id))
     const saldos = {}
     ;(loc ?? []).forEach(l => {
+      if (!localesConHistorial.has(l.id)) { saldos[l.id] = 0; return }
       const pagadoPrev = (pagPrev ?? []).filter(p => p.local_id === l.id).reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
       saldos[l.id] = Math.max(0, (MONTOS_ACORDADOS[l.id] ?? 0) - pagadoPrev)
     })
