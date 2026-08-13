@@ -197,7 +197,7 @@ export default function Subarriendos() {
     const [{ data: loc }, { data: pag }, { data: pagPrev }, { data: historial }] = await Promise.all([
       supabase.from('locales').select('*').eq('tipo', 'subarrendado').order('id'),
       supabase.from('pagos_subarriendo').select('*').eq('mes_periodo', mes).eq('anio_periodo', anio).order('fecha_pago'),
-      supabase.from('pagos_subarriendo').select('local_id, monto_pagado').eq('mes_periodo', mesPrev).eq('anio_periodo', anioPrev),
+      supabase.from('pagos_subarriendo').select('local_id, monto_pagado, monto_acordado').eq('mes_periodo', mesPrev).eq('anio_periodo', anioPrev),
       // ¿Hubo algún período anterior efectivamente trackeado? (para no inventar deuda de meses sin datos)
       supabase.from('pagos_subarriendo').select('local_id, anio_periodo, mes_periodo')
         .or(`anio_periodo.lt.${anioPrev},and(anio_periodo.eq.${anioPrev},mes_periodo.lte.${mesPrev})`),
@@ -211,7 +211,13 @@ export default function Subarriendos() {
     const saldos = {}
     ;(loc ?? []).forEach(l => {
       if (!localesConHistorial.has(l.id)) { saldos[l.id] = 0; return }
-      const pagadoPrev = (pagPrev ?? []).filter(p => p.local_id === l.id).reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
+      const rowsPrevLocal = (pagPrev ?? []).filter(p => p.local_id === l.id)
+      // Si el mes anterior fue una tarifa distinta a la vigente (ej. una deuda
+      // vieja con otro monto acordado), es una línea que se está trackeando
+      // aparte a propósito — no se arrastra automáticamente al mes actual.
+      const esTarifaCustom = rowsPrevLocal.some(p => Number(p.monto_acordado ?? 0) !== (MONTOS_ACORDADOS[l.id] ?? 0))
+      if (esTarifaCustom) { saldos[l.id] = 0; return }
+      const pagadoPrev = rowsPrevLocal.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
       saldos[l.id] = Math.max(0, (MONTOS_ACORDADOS[l.id] ?? 0) - pagadoPrev)
     })
     setSaldosArrastrados(saldos)
