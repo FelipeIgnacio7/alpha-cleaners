@@ -5,8 +5,14 @@ import { CheckCircle2, Clock, AlertCircle, X, Save, RefreshCw, Plus, ChevronDown
 const fmt = (n) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n ?? 0)
 
+// Monto de subarriendo mensual acordado por local (mismo monto todos los meses)
 const MONTOS_ACORDADOS = {
-  3: 850000, 4: 920000, 5: 780000, 6: 1100000, 7: 690000, 8: 950000,
+  3: 5100000, // Mall Alameda
+  4: 7000000, // Mall Curicó (subarrendado; independiente de las ventas propias de Curicó)
+  5: 2700000, // Tottus Santa Marta
+  6: 1800000, // Líder Vicuña Mackena
+  7: 2100000, // Santa Isabel Satélite de Maipú
+  8: 1400000, // Jumbo Coquimbo
 }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
