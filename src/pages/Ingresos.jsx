@@ -17,6 +17,26 @@ function matchLocalId(sucursal) {
   return null
 }
 
+// Aquapp dejó de ofrecer el reporte "Ventas"; "Movimientos de Caja" trae la
+// misma info de cada venta pero embebida como texto en la columna Detalle:
+// "Vinculado a venta del <día> <fecha> a <cliente> (<marca modelo>[, patente <patente>]). | Servicios prestados: <servicio1>, <servicio2>."
+const DETALLE_VENTA_RE = /^Vinculado a venta del \S+ \d{2}\/\d{2}\/\d{4} a (.+?) \(([^,)]+)(?:, patente ([^)]+))?\)\.\s*\|\s*Servicios prestados:\s*(.+)\.$/
+
+function parseDetalleMovCaja(detalle) {
+  const m = DETALLE_VENTA_RE.exec((detalle || '').trim())
+  if (!m) return null
+  const [, cliente, marcaModelo, patente, servicios] = m
+  const [marca, ...modeloParts] = marcaModelo.trim().split(/\s+/)
+  return {
+    cliente: cliente.trim(),
+    marca: marca || '',
+    modelo: modeloParts.join(' '),
+    patente: patente ? patente.trim() : '',
+    // "Lavado full, Limpieza Tapiz" -> "Lavado full | Limpieza Tapiz" (mismo separador que usa el resto de la app para combos)
+    tipo_servicio: servicios.split(',').map(s => s.trim()).filter(Boolean).join(' | '),
+  }
+}
+
 function parseCSV(text) {
   const lines = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n').filter(l => l.trim())
   const firstLine = lines[0]
@@ -45,6 +65,7 @@ function dedupKey(fecha, local_id, patente, monto, tipo_servicio) {
 function ModalImport({ locales, onClose, onDone }) {
   const [rows, setRows] = useState(null)
   const [fileName, setFileName] = useState('')
+  const [formato, setFormato] = useState('ventas') // 'ventas' | 'movcaja'
   const [importing, setImporting] = useState(false)
   const [checking, setChecking] = useState(false)
   const [result, setResult] = useState(null)
@@ -56,21 +77,43 @@ function ModalImport({ locales, onClose, onDone }) {
     const reader = new FileReader()
     reader.onload = async (ev) => {
       const parsed = parseCSV(ev.target.result)
-      const enriched = parsed.map(r => ({
-        raw: r,
-        fecha: r['Fecha'] ?? '',
-        sucursal: r['Sucursal'] ?? '',
-        local_id: matchLocalId(r['Sucursal']),
-        patente: r['Patente'] ?? '',
-        tipo_servicio: r['Servicios'] ?? '',
-        monto: Number(r['Monto cobrado'] ?? 0),
-        cliente: r['Cliente'] ?? '',
-        marca: r['Marca'] ?? '',
-        modelo: r['Modelo'] ?? '',
-      }))
+      const esMovCaja = parsed.length > 0 && 'Detalle' in parsed[0] && 'Subcategoría' in parsed[0]
+      setFormato(esMovCaja ? 'movcaja' : 'ventas')
+
+      const enriched = esMovCaja
+        ? parsed
+            .filter(r => (r['Tipo'] ?? '') === 'Ingreso' && (r['Subcategoría'] ?? '') === 'Venta de servicios')
+            .map(r => {
+              const det = parseDetalleMovCaja(r['Detalle'])
+              return {
+                raw: r,
+                fecha: r['Fecha'] ?? '',
+                sucursal: r['Sucursal'] ?? '',
+                local_id: matchLocalId(r['Sucursal']),
+                patente: det?.patente ?? '',
+                tipo_servicio: det?.tipo_servicio ?? '',
+                monto: Number(r['Monto'] ?? 0),
+                cliente: det?.cliente ?? '',
+                marca: det?.marca ?? '',
+                modelo: det?.modelo ?? '',
+                sinParsear: !det,
+              }
+            })
+        : parsed.map(r => ({
+            raw: r,
+            fecha: r['Fecha'] ?? '',
+            sucursal: r['Sucursal'] ?? '',
+            local_id: matchLocalId(r['Sucursal']),
+            patente: r['Patente'] ?? '',
+            tipo_servicio: r['Servicios'] ?? '',
+            monto: Number(r['Monto cobrado'] ?? 0),
+            cliente: r['Cliente'] ?? '',
+            marca: r['Marca'] ?? '',
+            modelo: r['Modelo'] ?? '',
+          }))
 
       setChecking(true)
-      const fechas = [...new Set(enriched.filter(r => r.monto > 0 && r.local_id && r.fecha).map(r => r.fecha))]
+      const fechas = [...new Set(enriched.filter(r => r.monto > 0 && r.local_id && r.fecha && !r.sinParsear).map(r => r.fecha))]
       let existingKeys = new Set()
       if (fechas.length > 0) {
         const { data: existentes } = await supabase
@@ -85,7 +128,7 @@ function ModalImport({ locales, onClose, onDone }) {
     reader.readAsText(file, 'utf-8')
   }
 
-  const candidatos = rows?.filter(r => r.monto > 0 && r.local_id && r.fecha) ?? []
+  const candidatos = rows?.filter(r => r.monto > 0 && r.local_id && r.fecha && !r.sinParsear) ?? []
   const validos = candidatos.filter(r => !r.yaExiste)
   const yaCargados = candidatos.length - validos.length
   const omitidos = (rows?.length ?? 0) - candidatos.length
@@ -102,7 +145,7 @@ function ModalImport({ locales, onClose, onDone }) {
       hora: '12:00:00',
       marca: r.marca || null,
       modelo: r.modelo || null,
-      webhook_raw: { fuente: 'csv_aquapp', cliente: r.cliente, marca: r.marca, modelo: r.modelo },
+      webhook_raw: { fuente: formato === 'movcaja' ? 'csv_aquapp_movcaja' : 'csv_aquapp', cliente: r.cliente, marca: r.marca, modelo: r.modelo },
     }))
 
     const { error } = await supabase.from('transacciones_lavado').insert(inserts)
@@ -121,7 +164,7 @@ function ModalImport({ locales, onClose, onDone }) {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="font-bold text-white">Importar CSV de Aquapp</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Archivo: Ventas - [Mes] [Año].csv</p>
+            <p className="text-xs text-gray-400 mt-0.5">Acepta el reporte de Ventas o el de Movimientos de Caja</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
         </div>
@@ -134,13 +177,18 @@ function ModalImport({ locales, onClose, onDone }) {
           <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-xl p-10 cursor-pointer transition-colors group">
             <Upload size={28} className="text-gray-500 group-hover:text-blue-400 mb-3 transition-colors" />
             <p className="text-sm text-gray-400 group-hover:text-gray-200">Haz click para seleccionar el CSV</p>
-            <p className="text-xs text-gray-600 mt-1">Exporta desde Aquapp → Ventas del mes</p>
+            <p className="text-xs text-gray-600 mt-1">Exporta desde Aquapp → Ventas o Movimientos de Caja del mes</p>
             <input type="file" accept=".csv" onChange={handleFile} className="hidden" />
           </label>
         ) : (
           <div className="space-y-4">
             <div className="bg-gray-800 rounded-xl p-4">
-              <p className="text-xs text-gray-400 mb-3 font-medium uppercase tracking-wide">Resumen del archivo</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Resumen del archivo</p>
+                <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
+                  {formato === 'movcaja' ? 'Movimientos de Caja' : 'Ventas'}
+                </span>
+              </div>
               <div className="text-xs text-gray-500 mb-3 font-mono truncate">{fileName}</div>
               <div className="grid grid-cols-4 gap-3">
                 <div className="text-center">
@@ -157,7 +205,7 @@ function ModalImport({ locales, onClose, onDone }) {
                 </div>
                 <div className="text-center">
                   <p className="text-xl font-bold text-gray-500">{omitidos}</p>
-                  <p className="text-xs text-gray-400">omitidos (monto $0)</p>
+                  <p className="text-xs text-gray-400">omitidos</p>
                 </div>
               </div>
             </div>
@@ -446,7 +494,7 @@ export default function Ingresos() {
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             <Upload size={14} />
-            Ventas CSV
+            Ventas / Servicios
           </button>
           <button
             onClick={simularWebhook}
