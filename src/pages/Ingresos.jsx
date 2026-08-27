@@ -20,7 +20,11 @@ function matchLocalId(sucursal) {
 // Aquapp dejó de ofrecer el reporte "Ventas"; "Movimientos de Caja" trae la
 // misma info de cada venta pero embebida como texto en la columna Detalle:
 // "Vinculado a venta del <día> <fecha> a <cliente> (<marca modelo>[, patente <patente>]). | Servicios prestados: <servicio1>, <servicio2>."
-const DETALLE_VENTA_RE = /^Vinculado a venta del \S+ \d{2}\/\d{2}\/\d{4} a (.+?) \(([^,)]+)(?:, patente ([^)]+))?\)\.\s*\|\s*Servicios prestados:\s*(.+)\.$/
+// Aquapp ha cambiado esta redacción más de una vez (ej. "a venta" -> "al trabajo",
+// y la Subcategoría "Venta de servicios" -> "Cobro por trabajos"), por eso el
+// regex acepta ambas variantes conocidas y el filtro de arriba ya no depende
+// de la Subcategoría — si aparece una redacción nueva, sumar la alternativa acá.
+const DETALLE_VENTA_RE = /^Vinculado (?:a venta|al trabajo) del \S+ \d{2}\/\d{2}\/\d{4} a (.+?) \(([^,)]+)(?:, patente ([^)]+))?\)\.\s*\|\s*Servicios prestados:\s*(.+)\.$/
 
 function parseDetalleMovCaja(detalle) {
   const m = DETALLE_VENTA_RE.exec((detalle || '').trim())
@@ -82,7 +86,11 @@ function ModalImport({ locales, onClose, onDone }) {
 
       const enriched = esMovCaja
         ? parsed
-            .filter(r => (r['Tipo'] ?? '') === 'Ingreso' && (r['Subcategoría'] ?? '') === 'Venta de servicios')
+            // No filtramos por Subcategoría: Aquapp le ha cambiado el texto más de una
+            // vez ("Venta de servicios" -> "Cobro por trabajos"). La señal real de que
+            // es una venta es que el Detalle calce con el patrón "Vinculado a venta
+            // del...", que parseDetalleMovCaja ya valida (devuelve null si no calza).
+            .filter(r => (r['Tipo'] ?? '') === 'Ingreso')
             .map(r => {
               const det = parseDetalleMovCaja(r['Detalle'])
               return {
