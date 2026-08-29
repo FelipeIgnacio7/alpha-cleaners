@@ -7,6 +7,7 @@ import Gastos from './pages/Gastos'
 import Analytics from './pages/Analytics'
 import Pricing from './pages/Pricing'
 import Clima from './pages/Clima'
+import Reactivacion from './pages/Reactivacion'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/clima" element={<Clima />} />
+            <Route path="/reactivacion" element={<Reactivacion />} />
           </Routes>
         </main>
       </div>
