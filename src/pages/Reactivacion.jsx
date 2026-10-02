@@ -75,12 +75,12 @@ function DataQualityBanner({ unresolvedCount, totalCount }) {
 function TemplateEditor({ segment, value, onChange, onReset }) {
   return (
     <div className="bg-black/20 border border-white/5 rounded-lg p-3 space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <p className="text-xs text-gray-400">Plantilla de mensaje (usa {'{{nombre}}'} para personalizar)</p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onReset}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 shrink-0"
             title="Restaurar plantilla sugerida"
           >
             <RotateCcw size={12} /> Restaurar sugerida
@@ -352,7 +352,7 @@ export default function Reactivacion() {
   )
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl">
+    <div className="p-4 sm:p-6 space-y-6 max-w-7xl">
       <div>
         <h1 className="text-xl font-bold text-white">Reactivación de Clientes</h1>
         <p className="text-sm text-gray-400 mt-0.5">

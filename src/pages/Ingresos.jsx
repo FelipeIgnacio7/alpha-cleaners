@@ -167,7 +167,7 @@ function ModalImport({ locales, onClose, onDone }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -198,7 +198,7 @@ function ModalImport({ locales, onClose, onDone }) {
                 </span>
               </div>
               <div className="text-xs text-gray-500 mb-3 font-mono truncate">{fileName}</div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="text-center">
                   <p className="text-xl font-bold text-blue-400">{validos.length}</p>
                   <p className="text-xs text-gray-400">a importar</p>
@@ -330,7 +330,7 @@ function ModalImportMovimientos({ locales, onClose, onDone }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -352,7 +352,7 @@ function ModalImportMovimientos({ locales, onClose, onDone }) {
             <div className="bg-gray-800 rounded-xl p-4">
               <p className="text-xs text-gray-400 mb-3 font-medium uppercase tracking-wide">Resumen del archivo</p>
               <div className="text-xs text-gray-500 mb-3 font-mono truncate">{fileName}</div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="text-center">
                   <p className="text-xl font-bold text-blue-400">{validos.length}</p>
                   <p className="text-xs text-gray-400">a importar</p>
@@ -483,13 +483,13 @@ export default function Ingresos() {
   const currentMonth = new Date().toISOString().slice(0, 7)
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-start justify-between">
+    <div className="p-4 sm:p-6 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">Ingresos</h2>
           <p className="text-sm text-gray-400">Transacciones de los 2 locales propios</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowImportMov(true)}
             className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -517,26 +517,26 @@ export default function Ingresos() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-3 bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <Filter size={14} className="text-gray-500 mt-2 shrink-0" />
-        <select value={filtroLocal} onChange={e => setFiltroLocal(e.target.value)} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
+      <div className="flex flex-wrap gap-3 bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <Filter size={14} className="text-gray-500 mt-2 shrink-0 hidden sm:block" />
+        <select value={filtroLocal} onChange={e => setFiltroLocal(e.target.value)} className="flex-1 min-w-[140px] sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
           <option value="">Todos los locales</option>
           {locales.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
         </select>
-        <input type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} defaultValue={currentMonth} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-        <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <input type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} defaultValue={currentMonth} className="flex-1 min-w-[140px] sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="flex-1 min-w-[140px] sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
           <option value="">Todos los tipos</option>
           <option value="Lavado">Lavado</option>
           <option value="Membresía">Membresía</option>
         </select>
-        <button onClick={load} className="ml-auto flex items-center gap-1.5 text-gray-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors">
+        <button onClick={load} className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 text-gray-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors">
           <RefreshCw size={13} />
           Actualizar
         </button>
       </div>
 
       {/* Tabla */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">

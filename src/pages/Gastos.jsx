@@ -69,15 +69,15 @@ export default function Gastos() {
     .reduce((a, g) => a + Number(g.monto), 0)
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <div>
         <h2 className="text-xl font-bold text-white">Gastos</h2>
         <p className="text-sm text-gray-400">Registro manual de gastos operacionales</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Formulario */}
-        <div className="col-span-1">
+        <div className="lg:col-span-1">
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <h3 className="text-sm font-semibold text-gray-200 mb-4">Nuevo Gasto</h3>
             <form onSubmit={handleSubmit} className="space-y-3">
@@ -179,7 +179,7 @@ export default function Gastos() {
         </div>
 
         {/* Tabla */}
-        <div className="col-span-2">
+        <div className="lg:col-span-2">
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <div>
@@ -190,6 +190,7 @@ export default function Gastos() {
                 <RefreshCw size={13} />
               </button>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
@@ -227,6 +228,7 @@ export default function Gastos() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       </div>

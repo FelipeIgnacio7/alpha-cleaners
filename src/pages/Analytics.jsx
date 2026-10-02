@@ -1066,7 +1066,7 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl">
+    <div className="p-4 sm:p-6 space-y-8 max-w-7xl">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>

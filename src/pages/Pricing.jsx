@@ -155,7 +155,7 @@ export default function Pricing() {
   if (!a) return <div className="p-8 text-gray-400">Sin datos suficientes.</div>
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl">
+    <div className="p-4 sm:p-6 space-y-8 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-xl font-bold text-white">Pricing &amp; Rentabilidad</h1>

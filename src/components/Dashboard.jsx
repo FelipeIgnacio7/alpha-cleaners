@@ -303,9 +303,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">Dashboard</h2>
           <p className="text-sm text-gray-400 capitalize">
@@ -317,13 +317,13 @@ export default function Dashboard() {
             type="month"
             value={filtroMes}
             onChange={e => setFiltroMes(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-          <Building2 size={14} className="text-gray-500 ml-1" />
+          <Building2 size={14} className="text-gray-500 ml-1 shrink-0 hidden sm:block" />
           <select
             value={filtroLocal}
             onChange={e => setFiltroLocal(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Todos los locales</option>
             <optgroup label="── Propios">
@@ -344,7 +344,7 @@ export default function Dashboard() {
       )}
 
       {/* KPIs — 5 tarjetas */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="col-span-1 bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex items-start justify-between mb-2">
             <p className="text-xs text-gray-400 uppercase tracking-wider">Ingresos</p>
@@ -402,8 +402,8 @@ export default function Dashboard() {
       )}
 
       {/* Ventas diarias + Breakdown servicios */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Ventas por día <span className="text-gray-500 font-normal">· venta diaria y acumulado</span></h3>
           <div className="h-52">
             {dailyChart
@@ -413,7 +413,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Ranking de servicios</h3>
           {servicios.length === 0 ? (
             <p className="text-gray-500 text-sm">Sin datos.</p>
@@ -446,8 +446,8 @@ export default function Dashboard() {
       </div>
 
       {/* Día de semana + 6 meses */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-1">Ventas por día de semana</h3>
           <p className="text-xs text-gray-500 mb-4">El día destacado es el de mayor venta</p>
           <div className="h-44">
@@ -474,7 +474,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="lg:col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Ingresos vs Gastos <span className="text-gray-500 font-normal">· últimos 6 meses</span></h3>
           <div className="h-44">
             {monthlyChart
@@ -486,8 +486,8 @@ export default function Dashboard() {
       </div>
 
       {/* Ranking marcas + Balance billetera */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Ranking de marcas <span className="text-gray-500 font-normal">· por nº de lavados</span></h3>
           {marcas.length === 0 ? (
             <p className="text-gray-500 text-sm">Sin datos. Importa el CSV de Ventas.</p>
@@ -513,7 +513,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-        <div className="col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="lg:col-span-3 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Balance por billetera <span className="text-gray-500 font-normal">· medio de pago</span></h3>
           {billeteraData.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-28 text-center">
@@ -545,13 +545,13 @@ export default function Dashboard() {
       </div>
 
       {/* Últimas transacciones */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-5 bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 gap-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Últimas transacciones</h3>
           {loading ? <p className="text-gray-500 text-sm">Cargando...</p> : recentTx.length === 0 ? (
             <p className="text-gray-500 text-sm">Sin transacciones.</p>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {recentTx.map((tx, i) => (
                 <div key={i} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2.5">
                   <div className="flex items-center gap-2 min-w-0">

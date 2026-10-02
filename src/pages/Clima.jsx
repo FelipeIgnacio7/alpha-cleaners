@@ -145,7 +145,7 @@ export default function Clima() {
   )
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl">
+    <div className="p-4 sm:p-6 space-y-8 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-xl font-bold text-white">Clima y Recomendaciones</h1>

@@ -7,12 +7,12 @@ const fmt = (n) =>
 
 // Monto de subarriendo mensual acordado por local (mismo monto todos los meses)
 const MONTOS_ACORDADOS = {
-  3: 5100000, // Mall Alameda
-  4: 7000000, // Mall Curicó (subarrendado; independiente de las ventas propias de Curicó)
-  5: 2700000, // Tottus Santa Marta
-  6: 1800000, // Líder Vicuña Mackena
-  7: 2100000, // Santa Isabel Satélite de Maipú
-  8: 1400000, // Jumbo Coquimbo
+  3: 5620000, // Mall Plaza Alameda: $5.400.000 arriendo + $220.000 gastos comunes
+  4: 7245000, // Mall Curicó: $7.000.000 arriendo + $245.000 gastos comunes (subarrendado; independiente de las ventas propias de Curicó)
+  5: 3334000, // Tottus Santa Marta: todo incluido
+  6: 2100000, // Líder Vicuña Mackenna: todo incluido
+  7: 2110000, // Ciudad Satélite de Maipú: $1.960.000 arriendo + $150.000 gastos comunes
+  8: 1500000, // Copiapó: todo incluido
 }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -41,7 +41,7 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -238,17 +238,17 @@ export default function Subarriendos() {
   }).length
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-start justify-between">
+    <div className="p-4 sm:p-6 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">Subarriendos</h2>
           <p className="text-sm text-gray-400">6 locales · puedes agregar abonos parciales</p>
         </div>
         <div className="flex items-center gap-3">
-          <select value={mes} onChange={e => setMes(Number(e.target.value))} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <select value={mes} onChange={e => setMes(Number(e.target.value))} className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
             {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
-          <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
             {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button onClick={loadAll} className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors">
@@ -257,7 +257,7 @@ export default function Subarriendos() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-xs text-gray-400 mb-1">Pagados completos</p>
           <p className="text-2xl font-bold text-green-400">{pagadosCompletos} <span className="text-sm text-gray-500">/ {locales.length}</span></p>
@@ -272,7 +272,7 @@ export default function Subarriendos() {
         </div>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
