@@ -99,15 +99,16 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
   )
 }
 
-function FilaLocal({ local, pagos, mes, anio, saldoArrastrado, onAbonar, onDeleteAbono }) {
+function FilaLocal({ local, pagos, mes, anio, onAbonar, onDeleteAbono }) {
   const [expanded, setExpanded] = useState(false)
   // Si ya hay pagos registrados para este período, el acordado real queda
   // guardado en esos registros (puede ser distinto al monto vigente hoy,
-  // ej. una deuda de un mes anterior con otro monto). Si no hay pagos
-  // todavía, se usa el monto acordado vigente + saldo arrastrado.
+  // ej. si se cambió la tarifa a mitad de mes). Si no hay pagos todavía,
+  // se usa el monto acordado vigente. Cada mes se evalúa solo contra su
+  // propio acordado, sin arrastrar deuda de meses anteriores.
   const montoAcordado = pagos.length > 0
     ? Math.max(...pagos.map(p => Number(p.monto_acordado ?? 0)))
-    : (MONTOS_ACORDADOS[local.id] ?? 0) + (saldoArrastrado ?? 0)
+    : (MONTOS_ACORDADOS[local.id] ?? 0)
   const totalPagado = pagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
   const pct = montoAcordado > 0 ? Math.min((totalPagado / montoAcordado) * 100, 100) : 0
   const saldo = montoAcordado - totalPagado
@@ -123,12 +124,7 @@ function FilaLocal({ local, pagos, mes, anio, saldoArrastrado, onAbonar, onDelet
       <tr className="hover:bg-gray-800/40 transition-colors">
         <td className="px-5 py-3.5 font-medium text-gray-200">{local.nombre}</td>
         <td className="px-5 py-3.5 text-gray-400 text-sm">{local.ciudad}</td>
-        <td className="px-5 py-3.5 text-right text-gray-300">
-          {fmt(montoAcordado)}
-          {saldoArrastrado > 0 && (
-            <p className="text-xs text-amber-400 mt-0.5">incl. {fmt(saldoArrastrado)} del mes anterior</p>
-          )}
-        </td>
+        <td className="px-5 py-3.5 text-right text-gray-300">{fmt(montoAcordado)}</td>
         <td className="px-5 py-3.5">
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-gray-800 rounded-full h-1.5 min-w-[60px]">
@@ -182,7 +178,6 @@ function FilaLocal({ local, pagos, mes, anio, saldoArrastrado, onAbonar, onDelet
 export default function Subarriendos() {
   const [locales, setLocales] = useState([])
   const [pagos, setPagos] = useState([])
-  const [saldosArrastrados, setSaldosArrastrados] = useState({})
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mes, setMes] = useState(new Date().getMonth() + 1)
@@ -192,35 +187,12 @@ export default function Subarriendos() {
 
   async function loadAll() {
     setLoading(true)
-    const mesPrev = mes === 1 ? 12 : mes - 1
-    const anioPrev = mes === 1 ? anio - 1 : anio
-    const [{ data: loc }, { data: pag }, { data: pagPrev }, { data: historial }] = await Promise.all([
+    const [{ data: loc }, { data: pag }] = await Promise.all([
       supabase.from('locales').select('*').eq('tipo', 'subarrendado').order('id'),
       supabase.from('pagos_subarriendo').select('*').eq('mes_periodo', mes).eq('anio_periodo', anio).order('fecha_pago'),
-      supabase.from('pagos_subarriendo').select('local_id, monto_pagado, monto_acordado').eq('mes_periodo', mesPrev).eq('anio_periodo', anioPrev),
-      // ¿Hubo algún período anterior efectivamente trackeado? (para no inventar deuda de meses sin datos)
-      supabase.from('pagos_subarriendo').select('local_id, anio_periodo, mes_periodo')
-        .or(`anio_periodo.lt.${anioPrev},and(anio_periodo.eq.${anioPrev},mes_periodo.lte.${mesPrev})`),
     ])
     setLocales(loc ?? [])
     setPagos(pag ?? [])
-    // Saldo no pagado del mes anterior, se suma al acordado del mes actual —
-    // solo si ese mes anterior tiene algún registro (evita inventar deuda
-    // cuando el local simplemente no se había empezado a trackear todavía).
-    const localesConHistorial = new Set((historial ?? []).map(h => h.local_id))
-    const saldos = {}
-    ;(loc ?? []).forEach(l => {
-      if (!localesConHistorial.has(l.id)) { saldos[l.id] = 0; return }
-      const rowsPrevLocal = (pagPrev ?? []).filter(p => p.local_id === l.id)
-      // Si el mes anterior fue una tarifa distinta a la vigente (ej. una deuda
-      // vieja con otro monto acordado), es una línea que se está trackeando
-      // aparte a propósito — no se arrastra automáticamente al mes actual.
-      const esTarifaCustom = rowsPrevLocal.some(p => Number(p.monto_acordado ?? 0) !== (MONTOS_ACORDADOS[l.id] ?? 0))
-      if (esTarifaCustom) { saldos[l.id] = 0; return }
-      const pagadoPrev = rowsPrevLocal.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
-      saldos[l.id] = Math.max(0, (MONTOS_ACORDADOS[l.id] ?? 0) - pagadoPrev)
-    })
-    setSaldosArrastrados(saldos)
     setLoading(false)
   }
 
@@ -229,12 +201,11 @@ export default function Subarriendos() {
     await loadAll()
   }
 
-  const totalAcordado = locales.reduce((a, l) => a + (MONTOS_ACORDADOS[l.id] ?? 0) + (saldosArrastrados[l.id] ?? 0), 0)
+  const totalAcordado = locales.reduce((a, l) => a + (MONTOS_ACORDADOS[l.id] ?? 0), 0)
   const totalPagado = pagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
   const pagadosCompletos = locales.filter(l => {
     const lPagos = pagos.filter(p => p.local_id === l.id)
-    const acordadoConArrastre = (MONTOS_ACORDADOS[l.id] ?? 0) + (saldosArrastrados[l.id] ?? 0)
-    return lPagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0) >= acordadoConArrastre
+    return lPagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0) >= (MONTOS_ACORDADOS[l.id] ?? 0)
   }).length
 
   return (
@@ -294,7 +265,6 @@ export default function Subarriendos() {
                 pagos={pagos.filter(p => p.local_id === local.id)}
                 mes={mes}
                 anio={anio}
-                saldoArrastrado={saldosArrastrados[local.id] ?? 0}
                 onAbonar={setModal}
                 onDeleteAbono={deleteAbono}
               />
@@ -312,7 +282,7 @@ export default function Subarriendos() {
             const pagosLocal = pagos.filter(p => p.local_id === modal.id)
             return pagosLocal.length > 0
               ? Math.max(...pagosLocal.map(p => Number(p.monto_acordado ?? 0)))
-              : (MONTOS_ACORDADOS[modal.id] ?? 0) + (saldosArrastrados[modal.id] ?? 0)
+              : (MONTOS_ACORDADOS[modal.id] ?? 0)
           })()}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); loadAll() }}

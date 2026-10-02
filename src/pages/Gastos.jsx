@@ -5,7 +5,13 @@ import { Plus, Trash2, RefreshCw } from 'lucide-react'
 const fmt = (n) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n ?? 0)
 
-const DEFAULT_FORM = { local_id: '', categoria_id: '', monto: '', proveedor: '', fecha: new Date().toISOString().split('T')[0], notas: '' }
+const DEFAULT_FORM = { local_id: '', categoria_id: '', monto: '', proveedor: '', fecha: new Date().toISOString().split('T')[0], notas: '', metodo_pago: '', es_cuotas: false, num_cuotas: '' }
+
+const METODOS_PAGO = [
+  { value: 'efectivo', label: 'Efectivo' },
+  { value: 'tarjeta', label: 'Tarjeta' },
+  { value: 'transferencia', label: 'Transferencia' },
+]
 
 export default function Gastos() {
   const [form, setForm] = useState(DEFAULT_FORM)
@@ -51,6 +57,9 @@ export default function Gastos() {
       fecha: form.fecha,
       notas: form.notas || null,
       metodo_carga: 'manual',
+      metodo_pago: form.metodo_pago || null,
+      es_cuotas: form.es_cuotas,
+      num_cuotas: form.es_cuotas && form.num_cuotas ? Number(form.num_cuotas) : null,
     })
     setForm(DEFAULT_FORM)
     setSaving(false)
@@ -117,6 +126,40 @@ export default function Gastos() {
                   onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
                   className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Medio de pago</label>
+                <select
+                  value={form.metodo_pago}
+                  onChange={e => setForm(f => ({ ...f, metodo_pago: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Sin especificar</option>
+                  {METODOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.es_cuotas}
+                    onChange={e => setForm(f => ({ ...f, es_cuotas: e.target.checked, num_cuotas: e.target.checked ? f.num_cuotas : '' }))}
+                    className="rounded border-gray-700 bg-gray-800"
+                  />
+                  Pago en cuotas
+                </label>
+                {form.es_cuotas && (
+                  <input
+                    type="number"
+                    min="2"
+                    placeholder="N° de cuotas"
+                    value={form.num_cuotas}
+                    onChange={e => setForm(f => ({ ...f, num_cuotas: e.target.value }))}
+                    className="w-full mt-2 bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                )}
               </div>
 
               <div>
@@ -197,6 +240,7 @@ export default function Gastos() {
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Fecha</th>
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Categoría</th>
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Proveedor</th>
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Medio</th>
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Local</th>
                   <th className="text-right text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Monto</th>
                   <th className="px-5 py-3"></th>
@@ -204,9 +248,9 @@ export default function Gastos() {
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {loading ? (
-                  <tr><td colSpan={6} className="text-center text-gray-500 py-10">Cargando...</td></tr>
+                  <tr><td colSpan={7} className="text-center text-gray-500 py-10">Cargando...</td></tr>
                 ) : gastos.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center text-gray-500 py-10">Sin gastos registrados.</td></tr>
+                  <tr><td colSpan={7} className="text-center text-gray-500 py-10">Sin gastos registrados.</td></tr>
                 ) : gastos.map(g => (
                   <tr key={g.id} className="hover:bg-gray-800/50 transition-colors">
                     <td className="px-5 py-3 text-gray-300 text-xs font-mono">{g.fecha}</td>
@@ -217,6 +261,12 @@ export default function Gastos() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-gray-400 text-sm">{g.proveedor ?? '—'}</td>
+                    <td className="px-5 py-3 text-gray-400 text-xs capitalize">
+                      {g.metodo_pago ?? '—'}
+                      {g.es_cuotas && (
+                        <span className="block text-purple-400">{g.num_cuotas ? `${g.num_cuotas} cuotas` : 'en cuotas'}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-gray-400 text-xs">{g.locales?.nombre ?? 'General'}</td>
                     <td className="px-5 py-3 text-right font-semibold text-red-400">{fmt(g.monto)}</td>
                     <td className="px-5 py-3">
