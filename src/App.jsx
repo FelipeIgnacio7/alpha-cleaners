@@ -10,6 +10,7 @@ import Analytics from './pages/Analytics'
 import Pricing from './pages/Pricing'
 import Clima from './pages/Clima'
 import Reactivacion from './pages/Reactivacion'
+import Personal from './pages/Personal'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/clima" element={<Clima />} />
               <Route path="/reactivacion" element={<Reactivacion />} />
+              <Route path="/personal" element={<Personal />} />
             </Routes>
           </main>
         </div>
