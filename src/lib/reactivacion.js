@@ -98,7 +98,7 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
     key,
     ...SEGMENT_META[key],
     defaultTemplate: getDefaultTemplate(key),
-    clients: clients.sort((a, b) => b.daysSinceLast - a.daysSinceLast),
+    clients: clients.sort((a, b) => a.daysSinceLast - b.daysSinceLast),
   }))
 }
 
