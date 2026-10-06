@@ -16,8 +16,12 @@ export const DEFAULT_SEGMENT_THRESHOLDS = {
   perdido: { minDays: 365 },
 }
 
+function normalizeNombre(n) {
+  return (n || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 function normalizePatente(p) {
-  return (p || '').trim().toUpperCase()
+  return (p || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
 
 // Agrupa transacciones por patente. Filas sin patente quedan fuera de los
@@ -123,14 +127,35 @@ export function enrichWithContact(clients, patenteTelefonoRows, contactosRows) {
     if (c.telefono) contactoPorTelefono[c.telefono] = c
   })
 
+  // Respaldo por nombre completo: solo si ese nombre apunta a un único teléfono
+  // (con varios no se puede saber cuál es, y escribirle a otra persona es peor que no escribir).
+  const telefonosPorNombre = {}
+  const addNombre = (nombre, telefono) => {
+    const key = normalizeNombre(nombre)
+    if (!telefono || key.split(' ').length < 2) return
+    ;(telefonosPorNombre[key] ||= new Set()).add(telefono)
+  }
+  patenteTelefonoRows.forEach(r => { addNombre(r.nombre_venta, r.telefono); addNombre(r.nombre_contacto, r.telefono) })
+  contactosRows.forEach(c => addNombre(c.nombre, c.telefono))
+
   return clients.map(c => {
     const match = telefonoPorPatente[c.patente]
-    const telefono = match?.telefono || null
+    let telefono = match?.telefono || null
+    let telefonoPorNombre = false
+    if (!telefono) {
+      const candidatos = telefonosPorNombre[normalizeNombre(c.nombreVenta)]
+      if (candidatos && candidatos.size === 1) {
+        telefono = [...candidatos][0]
+        telefonoPorNombre = true
+      }
+    }
+    const contacto = contactoPorTelefono[telefono]
+    const noContactar = Boolean(contacto?.no_contactar || contacto?.opt_out_at)
     const nombre = match?.nombre_contacto || match?.nombre_venta
-      || contactoPorTelefono[telefono]?.nombre
+      || contacto?.nombre
       || c.nombreVenta
       || null
-    return { ...c, telefono, nombre, hasPhone: Boolean(telefono) }
+    return { ...c, telefono, nombre, telefonoPorNombre, noContactar, hasPhone: Boolean(telefono) && !noContactar }
   })
 }
 

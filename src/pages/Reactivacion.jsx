@@ -114,8 +114,10 @@ function ClientRow({ client, template, checked, onToggle }) {
       <td className="py-2 pr-3 text-gray-400 font-mono text-xs">{client.patente}</td>
       <td className="py-2 pr-3">
         {client.hasPhone
-          ? <span className="flex items-center gap-1 text-gray-300 text-xs"><Phone size={11} /> {client.telefono}</span>
-          : <span className="flex items-center gap-1 text-gray-600 text-xs"><PhoneOff size={11} /> sin teléfono</span>}
+          ? <span className="flex items-center gap-1 text-gray-300 text-xs"><Phone size={11} /> {client.telefono}{client.telefonoPorNombre && <span className="text-amber-400/80" title="Teléfono asociado por coincidencia exacta de nombre, no por patente">· por nombre</span>}</span>
+          : client.noContactar
+            ? <span className="flex items-center gap-1 text-rose-400/80 text-xs"><PhoneOff size={11} /> no contactar</span>
+            : <span className="flex items-center gap-1 text-gray-600 text-xs"><PhoneOff size={11} /> sin teléfono</span>}
       </td>
       <td className="py-2 pr-3 text-gray-400 text-xs">{client.daysSinceLast}d sin visita</td>
       <td className="py-2 pr-3 text-gray-400 text-xs">{client.visits} visitas</td>
@@ -217,13 +219,13 @@ export default function Reactivacion() {
   const [selectedBySegment, setSelectedBySegment] = useState({})
 
   useEffect(() => {
-    async function fetchAllPaginated(table, columns) {
+    async function fetchAllPaginated(table, columns, orderCol) {
       const { count } = await supabase.from(table).select('*', { count: 'exact', head: true })
       const total = count || 0
       const pageSize = 1000
       const pages = Math.max(1, Math.ceil(total / pageSize))
       const fetches = Array.from({ length: pages }, (_, i) =>
-        supabase.from(table).select(columns).range(i * pageSize, (i + 1) * pageSize - 1)
+        supabase.from(table).select(columns).order(orderCol).range(i * pageSize, (i + 1) * pageSize - 1)
       )
       const results = await Promise.all(fetches)
       return results.flatMap(r => r.data || [])
@@ -234,9 +236,9 @@ export default function Reactivacion() {
       setError(null)
       try {
         const [txnRows, ptRows, contactoRows] = await Promise.all([
-          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, cliente:webhook_raw->>cliente'),
-          fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto'),
-          fetchAllPaginated('contactos_clientes', 'nombre, telefono, email'),
+          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, cliente:webhook_raw->>cliente', 'id'),
+          fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto', 'patente'),
+          fetchAllPaginated('contactos_clientes', 'nombre, telefono, email, no_contactar, opt_out_at', 'id'),
         ])
         setTxns(txnRows)
         setPatenteTelefono(ptRows)
