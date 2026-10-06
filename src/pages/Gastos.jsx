@@ -11,7 +11,10 @@ const METODOS_PAGO = [
   { value: 'efectivo', label: 'Efectivo' },
   { value: 'tarjeta', label: 'Tarjeta' },
   { value: 'transferencia', label: 'Transferencia' },
+  { value: 'automatico_cta_cte', label: 'Automático cta. cte.' },
 ]
+
+const METODO_LABEL = Object.fromEntries(METODOS_PAGO.map(m => [m.value, m.label]))
 
 export default function Gastos() {
   const [form, setForm] = useState(DEFAULT_FORM)
@@ -261,8 +264,8 @@ export default function Gastos() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-gray-400 text-sm">{g.proveedor ?? '—'}</td>
-                    <td className="px-5 py-3 text-gray-400 text-xs capitalize">
-                      {g.metodo_pago ?? '—'}
+                    <td className="px-5 py-3 text-gray-400 text-xs">
+                      {g.metodo_pago ? (METODO_LABEL[g.metodo_pago] ?? g.metodo_pago) : '—'}
                       {g.es_cuotas && (
                         <span className="block text-purple-400">{g.num_cuotas ? `${g.num_cuotas} cuotas` : 'en cuotas'}</span>
                       )}
