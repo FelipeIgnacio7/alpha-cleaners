@@ -30,12 +30,18 @@ export function buildClientAggregates(txnRows, now = new Date()) {
   txnRows.forEach(t => {
     const patente = normalizePatente(t.patente)
     if (!patente) { unresolvedCount++; return }
-    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity }
+    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null }
     const d = byPatente[patente]
     const ms = new Date(t.fecha).getTime()
     d.visits++
     d.total += Number(t.monto) || 0
-    if (ms > d.lastMs) d.lastMs = ms
+    const nombre = (t.cliente || '').replace(/\s+/g, ' ').trim()
+    if (ms > d.lastMs) {
+      d.lastMs = ms
+      if (nombre) d.nombreVenta = nombre
+    } else if (nombre && !d.nombreVenta) {
+      d.nombreVenta = nombre
+    }
     if (ms < d.firstMs) d.firstMs = ms
   })
 
@@ -43,6 +49,7 @@ export function buildClientAggregates(txnRows, now = new Date()) {
   Object.entries(byPatente).forEach(([patente, d]) => {
     aggregates[patente] = {
       patente,
+      nombreVenta: d.nombreVenta,
       visits: d.visits,
       avgTicket: d.visits > 0 ? d.total / d.visits : 0,
       daysSinceLast: Math.floor((hoyMs - d.lastMs) / 86400000),
@@ -104,7 +111,7 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
 
 // Resuelve teléfono/nombre por patente. Orden de prioridad para el nombre:
 // nombre_contacto -> nombre_venta (de patente_telefono) -> match por teléfono
-// en contactos_clientes -> null.
+// en contactos_clientes -> nombre registrado en la última venta -> null.
 export function enrichWithContact(clients, patenteTelefonoRows, contactosRows) {
   const telefonoPorPatente = {}
   patenteTelefonoRows.forEach(r => {
@@ -121,6 +128,7 @@ export function enrichWithContact(clients, patenteTelefonoRows, contactosRows) {
     const telefono = match?.telefono || null
     const nombre = match?.nombre_contacto || match?.nombre_venta
       || contactoPorTelefono[telefono]?.nombre
+      || c.nombreVenta
       || null
     return { ...c, telefono, nombre, hasPhone: Boolean(telefono) }
   })

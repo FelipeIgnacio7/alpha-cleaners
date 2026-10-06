@@ -234,7 +234,7 @@ export default function Reactivacion() {
       setError(null)
       try {
         const [txnRows, ptRows, contactoRows] = await Promise.all([
-          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha'),
+          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, cliente:webhook_raw->>cliente'),
           fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto'),
           fetchAllPaginated('contactos_clientes', 'nombre, telefono, email'),
         ])
