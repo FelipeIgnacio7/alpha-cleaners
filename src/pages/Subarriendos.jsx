@@ -13,6 +13,7 @@ const MONTOS_ACORDADOS = {
   6: 2100000, // Líder Vicuña Mackenna: todo incluido
   7: 2110000, // Ciudad Satélite de Maipú: $1.960.000 arriendo + $150.000 gastos comunes
   8: 1500000, // Copiapó: todo incluido
+  10: 0, // Mall Plaza Norte: monto pendiente de definir
 }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -213,7 +214,7 @@ export default function Subarriendos() {
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-white">Subarriendos</h2>
-          <p className="text-sm text-gray-400">6 locales · puedes agregar abonos parciales</p>
+          <p className="text-sm text-gray-400">{locales.length} locales · puedes agregar abonos parciales</p>
         </div>
         <div className="flex items-center gap-3">
           <select value={mes} onChange={e => setMes(Number(e.target.value))} className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
