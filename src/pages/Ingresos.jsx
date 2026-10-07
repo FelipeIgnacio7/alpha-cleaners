@@ -60,10 +60,31 @@ function parseCSV(text) {
   })
 }
 
-// Debe coincidir exactamente con el índice único transacciones_lavado_dedup:
-// (fecha, local_id, COALESCE(patente,''), monto, tipo_servicio)
-function dedupKey(fecha, local_id, patente, monto, tipo_servicio) {
-  return `${fecha}|${local_id}|${patente || ''}|${Number(monto)}|${tipo_servicio || ''}`
+// Debe coincidir con el índice único transacciones_lavado_dedup:
+// (fecha, local_id, COALESCE(patente,''), monto, tipo_servicio,
+//  COALESCE(webhook_raw->>'cliente',''), COALESCE(webhook_raw->>'dup_n','0'))
+// dup_n numera ventas idénticas (mismo cliente, patente, monto y servicio el mismo
+// día): la 1ª no lleva marca, la 2ª es "1", etc. Así dos cobros iguales reales
+// quedan como dos filas, y volver a subir el mismo archivo no duplica nada.
+function baseKey(fecha, local_id, patente, monto, tipo_servicio, cliente) {
+  return `${fecha}|${local_id}|${patente || ''}|${Number(monto)}|${tipo_servicio || ''}|${cliente || ''}`
+}
+
+// Supabase corta cada consulta en 1000 filas; se pagina para no ignorar ventas ya cargadas.
+async function fetchExistentes(fechas) {
+  const out = []
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase
+      .from('transacciones_lavado')
+      .select('fecha, local_id, patente, monto, tipo_servicio, cliente:webhook_raw->>cliente')
+      .in('fecha', fechas)
+      .order('id')
+      .range(from, from + 999)
+    if (!data) break
+    out.push(...data)
+    if (data.length < 1000) break
+  }
+  return out
 }
 
 function ModalImport({ locales, onClose, onDone }) {
@@ -122,16 +143,22 @@ function ModalImport({ locales, onClose, onDone }) {
 
       setChecking(true)
       const fechas = [...new Set(enriched.filter(r => r.monto > 0 && r.local_id && r.fecha && !r.sinParsear).map(r => r.fecha))]
-      let existingKeys = new Set()
+      const existentesPorClave = {}
       if (fechas.length > 0) {
-        const { data: existentes } = await supabase
-          .from('transacciones_lavado')
-          .select('fecha, local_id, patente, monto, tipo_servicio')
-          .in('fecha', fechas)
-        existingKeys = new Set((existentes ?? []).map(r => dedupKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio)))
+        const existentes = await fetchExistentes(fechas)
+        existentes.forEach(r => {
+          const k = baseKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio, r.cliente)
+          existentesPorClave[k] = (existentesPorClave[k] ?? 0) + 1
+        })
       }
       setChecking(false)
-      setRows(enriched.map(r => ({ ...r, yaExiste: existingKeys.has(dedupKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio)) })))
+      const vistas = {}
+      setRows(enriched.map(r => {
+        const k = baseKey(r.fecha, r.local_id, r.patente, r.monto, r.tipo_servicio, r.cliente)
+        const dupN = vistas[k] ?? 0
+        vistas[k] = dupN + 1
+        return { ...r, dupN, yaExiste: dupN < (existentesPorClave[k] ?? 0) }
+      }))
     }
     reader.readAsText(file, 'utf-8')
   }
@@ -153,7 +180,7 @@ function ModalImport({ locales, onClose, onDone }) {
       hora: '12:00:00',
       marca: r.marca || null,
       modelo: r.modelo || null,
-      webhook_raw: { fuente: formato === 'movcaja' ? 'csv_aquapp_movcaja' : 'csv_aquapp', cliente: r.cliente, marca: r.marca, modelo: r.modelo },
+      webhook_raw: { fuente: formato === 'movcaja' ? 'csv_aquapp_movcaja' : 'csv_aquapp', cliente: r.cliente, marca: r.marca, modelo: r.modelo, ...(r.dupN > 0 ? { dup_n: String(r.dupN) } : {}) },
     }))
 
     const { error } = await supabase.from('transacciones_lavado').insert(inserts)
