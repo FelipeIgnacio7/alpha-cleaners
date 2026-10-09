@@ -6,6 +6,10 @@ import { Plus, CheckCircle2, AlertTriangle, Droplets } from 'lucide-react'
 // ninguna otra cifra del negocio. Se entra con /registro-gastos/<ACCESS_TOKEN>.
 const ACCESS_TOKEN = '69zk4m1sn36fdk'
 
+// El encargado solo registra gastos de Fontova (local 1, "Huechuraba (matriz)" en la base).
+const LOCAL_ID = 1
+const LOCAL_NOMBRE = 'Fontova'
+
 const STORAGE_KEY = 'registro-gastos:recientes'
 
 const fmt = (n) =>
@@ -22,7 +26,7 @@ const hoyLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-const emptyForm = () => ({ local_id: '', categoria_id: '', monto: '', metodo_pago: '', es_cuotas: false, num_cuotas: '', proveedor: '', notas: '', fecha: hoyLocal() })
+const emptyForm = () => ({ categoria_id: '', monto: '', metodo_pago: '', es_cuotas: false, num_cuotas: '', proveedor: '', notas: '', fecha: hoyLocal() })
 
 function leerRecientes() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
@@ -30,7 +34,6 @@ function leerRecientes() {
 
 export default function RegistroGastos({ token }) {
   const [categorias, setCategorias] = useState([])
-  const [locales, setLocales] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -40,13 +43,7 @@ export default function RegistroGastos({ token }) {
 
   useEffect(() => {
     if (!autorizado) return
-    Promise.all([
-      supabase.from('categorias_gasto').select('id, nombre').order('nombre'),
-      supabase.from('locales').select('id, nombre').order('nombre'),
-    ]).then(([{ data: cats }, { data: locs }]) => {
-      setCategorias(cats ?? [])
-      setLocales(locs ?? [])
-    })
+    supabase.from('categorias_gasto').select('id, nombre').order('nombre').then(({ data }) => setCategorias(data ?? []))
   }, [autorizado])
 
   if (!autorizado) {
@@ -59,11 +56,11 @@ export default function RegistroGastos({ token }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.monto || !form.categoria_id || !form.fecha || !form.local_id) return
+    if (!form.monto || !form.categoria_id || !form.fecha) return
     setSaving(true)
     setMsg(null)
     const { error } = await supabase.from('gastos').insert({
-      local_id: Number(form.local_id),
+      local_id: LOCAL_ID,
       categoria_id: Number(form.categoria_id),
       monto: Number(form.monto),
       proveedor: form.proveedor || null,
@@ -84,13 +81,12 @@ export default function RegistroGastos({ token }) {
       fecha: form.fecha,
       monto: Number(form.monto),
       categoria: categorias.find(c => String(c.id) === form.categoria_id)?.nombre ?? '',
-      local: locales.find(l => String(l.id) === form.local_id)?.nombre ?? '',
       detalle: form.proveedor || '',
     }
     const nuevos = [entrada, ...recientes].slice(0, 15)
     setRecientes(nuevos)
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos)) } catch { /* sin almacenamiento local */ }
-    setForm(f => ({ ...emptyForm(), local_id: f.local_id }))
+    setForm(emptyForm())
     setMsg({ ok: true, text: 'Gasto registrado correctamente' })
     setTimeout(() => setMsg(null), 3500)
   }
@@ -107,19 +103,11 @@ export default function RegistroGastos({ token }) {
           </div>
           <div>
             <h1 className="font-bold text-white">Alpha Cleaners</h1>
-            <p className="text-sm text-gray-400">Registro de gastos</p>
+            <p className="text-sm text-gray-400">Registro de gastos · {LOCAL_NOMBRE}</p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
-          <div>
-            <label className={labelCls}>Local *</label>
-            <select required value={form.local_id} onChange={e => setForm(f => ({ ...f, local_id: e.target.value }))} className={inputCls}>
-              <option value="">Seleccionar...</option>
-              {locales.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
-            </select>
-          </div>
-
           <div>
             <label className={labelCls}>Categoría *</label>
             <select required value={form.categoria_id} onChange={e => setForm(f => ({ ...f, categoria_id: e.target.value }))} className={inputCls}>
@@ -212,7 +200,7 @@ export default function RegistroGastos({ token }) {
               <div key={r.ts} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-sm text-gray-200 truncate">{r.categoria}{r.detalle ? ` · ${r.detalle}` : ''}</p>
-                  <p className="text-xs text-gray-500 truncate">{r.local} · {r.fecha}</p>
+                  <p className="text-xs text-gray-500 truncate">{r.fecha}</p>
                 </div>
                 <span className="text-sm font-semibold text-red-400 shrink-0 ml-3">{fmt(r.monto)}</span>
               </div>
