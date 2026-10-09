@@ -12,6 +12,7 @@ import Clima from './pages/Clima'
 import Reactivacion from './pages/Reactivacion'
 import Personal from './pages/Personal'
 import RegistroGastos from './pages/RegistroGastos'
+import AccessGate from './components/AccessGate'
 
 function Shell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -23,6 +24,7 @@ function Shell() {
   }
 
   return (
+    <AccessGate>
     <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -56,6 +58,7 @@ function Shell() {
         </main>
       </div>
     </div>
+    </AccessGate>
   )
 }
 
