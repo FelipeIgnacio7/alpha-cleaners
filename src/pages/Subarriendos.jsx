@@ -12,7 +12,7 @@ const MONTOS_ACORDADOS = {
   5: 3334000, // Tottus Santa Marta: todo incluido
   6: 2100000, // Líder Vicuña Mackenna: todo incluido
   7: 2110000, // Ciudad Satélite de Maipú: $1.960.000 arriendo + $150.000 gastos comunes
-  8: 1500000, // Copiapó: todo incluido
+  8: 1400000, // Copiapó: todo incluido
   10: 0, // Mall Plaza Norte: monto pendiente de definir
 }
 
