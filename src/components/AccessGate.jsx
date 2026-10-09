@@ -4,7 +4,7 @@ import { Droplets, Lock } from 'lucide-react'
 // Clave de acceso al panel. Se guarda solo la huella SHA-256 (con sal), no el PIN.
 // Es una barrera para que otras personas con el enlace no vean las cifras; no
 // reemplaza un inicio de sesión real, porque la comprobación ocurre en el navegador.
-const PIN_HASH = '7b5d6ec0d790c5a89f41f4a57f90c9e9d00e7f13961febdb3f5cc6f473bfa0de'
+const PIN_HASH = '1a41d71aed80081c1e55c487e5048861d3c3e05b653a1156eec2a54e22c45a2e'
 const STORAGE_KEY = 'alpha:acceso'
 
 async function sha256(texto) {
