@@ -36,8 +36,7 @@ function findRainyStreaks(days) {
 //  - Servicios con reserva opcional: tapiz, pulido, detailing, sellado cerámico, motor con vapor, chasis.
 //  - Membresía Gold: desde $39.990/mes (autos) y $44.990/mes (camionetas), se contrata en alphacleaners.cl.
 //  - No hay descuentos de campaña creados en Aquapp: no se prometen. Si se decide hacer uno, crearlo primero ahí.
-const BAJA = ''
-const MEMBRESIA = 'Membresía Gold: desde $39.990 al mes (autos) o $44.990 (camionetas). Detalles y contratación en alphacleaners.cl.'
+const MEMBRESIA = '*Membresía Gold* 🏅\nDesde $39.990 al mes (autos) o $44.990 (camionetas).\nDetalles y contratación en alphacleaners.cl'
 const SIN_RESERVA = 'Atendemos por orden de llegada, sin reserva.'
 
 // Recomendaciones de negocio en base al pronóstico de una sucursal
@@ -59,7 +58,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · última oportunidad`,
         title: `Prepara el ${fmtDay(days[start - 1].date)}, antes de la lluvia`,
         body: 'Es el mejor momento para ofrecer cera o sellado cerámico: el auto queda protegido y el barro se pega menos cuando llueva. La cera se agrega al lavado por orden de llegada; el sellado cerámico es de reserva opcional. Publica una historia de "última oportunidad antes de la lluvia".',
-        whatsapp: `🚗☔ Se viene la lluvia. Antes de que llegue, protege tu auto con cera o sellado cerámico: el barro se pega mucho menos. La cera la agregamos a tu lavado en Alpha Cleaners (${SIN_RESERVA}). Si prefieres el sellado cerámico, escríbenos por aquí y reservamos tu hora.${BAJA}`,
+        whatsapp: `🚗☔ *Se viene la lluvia*\n\nAntes de que llegue, protege tu auto con cera o sellado cerámico: el barro se pega mucho menos.\n\n✅ La cera la agregamos a tu lavado en Alpha Cleaners (${SIN_RESERVA})\n✅ Sellado cerámico: escríbenos por aquí y reservamos tu hora`,
       })
     }
 
@@ -69,7 +68,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · fin de semana en riesgo`,
         title: `La lluvia pega el fin de semana (${range})`,
         body: 'El fin de semana suele ser el de mayor venta, no lo dejes ir sin pelear. Antes del viernes, contacta a tus clientes frecuentes para ofrecerles la membresía (cobras caja aunque llueva) y refuerza en redes los servicios de interior para captar algo de tráfico igual.',
-        whatsapp: `Hola 👋 este fin de semana viene con lluvia. Si nos visitas seguido, conoce la ${MEMBRESIA}${BAJA}`,
+        whatsapp: `Hola 👋\n\nEste fin de semana viene con lluvia 🌧️ Si nos visitas seguido, conoce nuestra membresía:\n\n${MEMBRESIA}`,
       })
     } else if (len >= 2) {
       recs.push({
@@ -77,7 +76,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · lluvia`,
         title: `${len} días de lluvia seguidos (${range})`,
         body: 'Prioriza la venta de membresías llamando a la lista de clientes frecuentes, y ofrece servicios que no dependen de que el auto esté seco: detailing interior, limpieza de tapiz, sanitizado interior, pulido de focos. Si manejas pauta publicitaria (Meta/Google), reduce las palabras clave de lavado exterior estos días y redirige el presupuesto hacia membresías y servicios de interior. Aprovecha también la baja demanda para mantención de equipos, capacitación del personal y pedir reseñas a los clientes satisfechos que sí alcancen a venir. Si decides hacer una promo para atraer gente, créala antes en Aquapp (Descuentos) para que el cajero pueda aplicarla.',
-        whatsapp: `Hola! Esta semana viene con lluvia 🌧️ Es un buen momento para conocer la ${MEMBRESIA}${BAJA}`,
+        whatsapp: `Hola 👋\n\nEsta semana viene con lluvia 🌧️ Es un buen momento para conocer nuestra membresía:\n\n${MEMBRESIA}`,
       })
     } else {
       recs.push({
@@ -94,7 +93,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · alerta`,
         title: `Riesgo de tormenta o granizo en ${range}`,
         body: 'Puede haber tormenta eléctrica, granizo o chubascos intensos. Evalúa resguardar equipos y autos en espera bajo techo, y si vas a operar con horario reducido, avísalo en redes sociales para que los clientes no lleguen y se encuentren cerrado.',
-        whatsapp: '⚠️ Por el pronóstico de tormenta o granizo, hoy podemos atender con horario reducido por seguridad. Cualquier cambio te lo avisamos por aquí. ¡Gracias por tu comprensión!',
+        whatsapp: '⚠️ *Aviso importante*\n\nPor el pronóstico de tormenta o granizo, hoy podemos atender con horario reducido por seguridad.\n\nCualquier cambio te lo avisamos por aquí. ¡Gracias por tu comprensión!',
       })
     }
 
@@ -105,7 +104,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
         tag: `${branchLabel} · post-lluvia`,
         title: `Repunte esperado el ${fmtDay(days[nextIdx].date)}`,
         body: 'Primer día seco tras la lluvia: los autos llegan embarrados y con restos de barro y sal en la carrocería y el chasis. Destaca el lavado full y el lavado de chasis + ducha grafitada (se atiende de a un auto a la vez), y refuerza la dotación de personal porque habrá más demanda de la normal. El lavado es por orden de llegada, así que avisa en qué horarios hay menos fila para repartirla. Si quieres incentivarlo con un descuento por ir temprano, créalo antes en Aquapp.',
-        whatsapp: `☀️ ¡Ya paró la lluvia! Si tu auto quedó con barro, pasa por Alpha Cleaners: lavado full y lavado de chasis + ducha grafitada para sacar el barro de abajo. ${SIN_RESERVA} Para el chasis también puedes reservar escribiéndonos por aquí.${BAJA}`,
+        whatsapp: `☀️ *¡Ya paró la lluvia!*\n\nSi tu auto quedó con barro, pasa por Alpha Cleaners: lavado full y lavado de chasis + ducha grafitada para sacar el barro de abajo.\n\n${SIN_RESERVA}\nPara el chasis también puedes reservar escribiéndonos por aquí.`,
       })
     }
   })
@@ -116,7 +115,7 @@ export function buildWeatherRecommendations(branchLabel, days) {
       tag: `${branchLabel} · sin lluvia`,
       title: 'Semana despejada',
       body: 'No se esperan lluvias relevantes esta semana. Es el momento ideal para invertir en publicidad y contenido en RRSS los días de mayor tráfico histórico, y para empujar servicios exteriores de mayor ticket (pulido, sellado cerámico, cera) que rinden mejor con el auto seco.',
-      whatsapp: `☀️ Semana ideal para dejar tu auto como nuevo en Alpha Cleaners: lavado full, pulido o sellado cerámico con el clima a favor. El lavado es por orden de llegada, sin reserva; para pulido y sellado cerámico puedes reservar hora escribiéndonos por aquí.${BAJA}`,
+      whatsapp: `☀️ *Semana ideal para dejar tu auto como nuevo*\n\nEn Alpha Cleaners: lavado full, pulido o sellado cerámico con el clima a favor.\n\n✅ Lavado: por orden de llegada, sin reserva\n✅ Pulido y sellado cerámico: reserva tu hora escribiéndonos por aquí`,
     })
   }
 
@@ -139,7 +138,7 @@ export function buildRainSeasonPlaybook(forecasts) {
       tag: '1 · Captura caja ahora',
       title: 'Llama a tus candidatos a membresía',
       body: 'Usa el tiempo muerto de los lavadores para telefonear. En Inteligencia → sección de candidatos a membresía ya tienes la lista de clientes frecuentes que aún no son socios. La lluvia es la mejor excusa para cerrarlos: cobras caja hoy aunque no laven esta semana, y aseguras sus próximas visitas. Fija una meta diaria de llamados por sucursal.',
-      whatsapp: `Hola [nombre] 👋 Vemos que nos visitas seguido en Alpha Cleaners. Te cuento de la ${MEMBRESIA}${BAJA}`,
+      whatsapp: `Hola [nombre] 👋\n\nVemos que nos visitas seguido en Alpha Cleaners. Te cuento de nuestra membresía:\n\n${MEMBRESIA}`,
     },
     {
       accent: 'amber',
@@ -154,14 +153,14 @@ export function buildRainSeasonPlaybook(forecasts) {
       tag: '2 · Productos de lluvia',
       title: 'Sellado cerámico: tu producto de protección para el invierno',
       body: 'Esto no se pierde con la lluvia: se vende más por la lluvia. El sellado cerámico protege la pintura y hace que el agua y el barro resbalen. Es de ticket alto y de reserva opcional, así que avísale al cliente que puede reservar hora. El sellado ya incluye el pulido completo básico.',
-      whatsapp: `🌧️ ¿Sabías que el sellado cerámico hace que el agua y el barro resbalen en la pintura de tu auto? Es ideal para el invierno y lo hacemos en Alpha Cleaners. Escríbenos por aquí y te cotizamos y reservamos hora.${BAJA}`,
+      whatsapp: `🌧️ *¿Sabías que el sellado cerámico hace que el agua y el barro resbalen en la pintura de tu auto?*\n\nEs ideal para el invierno y lo hacemos en Alpha Cleaners.\n\nEscríbenos por aquí y te cotizamos y reservamos hora.`,
     },
     {
       accent: 'blue',
       tag: '2 · Productos de lluvia',
       title: 'Cuida el interior antes de que se humedezca',
       body: 'Con lluvia la gente entra y sale del auto mojada: tapices y alfombras sufren, y aparecen la humedad y el olor. Ofrece limpieza de tapiz (asientos, puertas, techo) y sanitizado interior, servicios de interior que se pueden hacer aunque llueva.',
-      whatsapp: `💺 Con la lluvia el interior del auto se humedece y agarra olor. En Alpha Cleaners hacemos limpieza de tapiz y sanitizado interior para dejarlo fresco. El sanitizado es por orden de llegada; para la limpieza de tapiz puedes reservar hora escribiéndonos por aquí.${BAJA}`,
+      whatsapp: `💺 *Con la lluvia el interior del auto se humedece y agarra olor*\n\nEn Alpha Cleaners hacemos limpieza de tapiz y sanitizado interior para dejarlo fresco.\n\n✅ Sanitizado: por orden de llegada\n✅ Limpieza de tapiz: reserva tu hora escribiéndonos por aquí`,
     },
 
     // ---- Servicios que no dependen del clima ----
@@ -170,7 +169,7 @@ export function buildRainSeasonPlaybook(forecasts) {
       tag: '3 · Servicios sin clima',
       title: 'Reorienta la oferta al interior y al detailing',
       body: 'Todo lo que no se arruina si llueve después: detailing interior, limpieza profunda de tapiz, sanitizado interior, pulido de focos, pulido completo. Ponlos al frente en el cartel de precios y en RRSS estos días. Un pulido de focos o un detailing interior mantiene el ticket aunque no laves por fuera.',
-      whatsapp: `✨ ¿Llueve y no vale la pena lavar por fuera? Aprovecha para el interior: detailing interior, limpieza de tapiz o pulido de focos. Escríbenos por aquí y reservamos tu hora.${BAJA}`,
+      whatsapp: `✨ *¿Llueve y no vale la pena lavar por fuera?*\n\nAprovecha para el interior: detailing interior, limpieza de tapiz o pulido de focos.\n\nEscríbenos por aquí y reservamos tu hora.`,
     },
 
     // ---- Llevar el lavado bajo techo ----
@@ -187,7 +186,7 @@ export function buildRainSeasonPlaybook(forecasts) {
       tag: '5 · Primer día seco',
       title: 'Avisa el día seco: llegan todos a la vez',
       body: 'Apenas pare, todos van a querer sacarse el barro y se arma fila. Como el lavado es por orden de llegada (no se agendan horas), avisa a tus clientes los horarios con menos fila según tu historial, para repartir la demanda, y refuerza el personal. Si quieres incentivar ir en horario tranquilo con un descuento, créalo antes en Aquapp.',
-      whatsapp: `📍 La lluvia pasa y el barro queda. Cuando salga el sol, pasa por Alpha Cleaners: atendemos por orden de llegada y el primer día seco se arma fila, así que mientras más temprano llegues, mejor.${BAJA}`,
+      whatsapp: `📍 *La lluvia pasa y el barro queda*\n\nCuando salga el sol, pasa por Alpha Cleaners: atendemos por orden de llegada y el primer día seco se arma fila, así que mientras más temprano llegues, mejor.`,
     },
 
     // ---- Campaña masiva ----
@@ -196,7 +195,7 @@ export function buildRainSeasonPlaybook(forecasts) {
       tag: '6 · Campaña masiva',
       title: 'Mensaje a toda la base de clientes',
       body: 'Combina las dos jugadas en un solo envío por WhatsApp a tu base: protección ANTES de la lluvia (cera o sellado cerámico) y aviso de que DESPUÉS se atiende por orden de llegada. Segmenta si puedes: a los socios recuérdales su membresía, a los frecuentes ofréceles la membresía, y a los inactivos escríbeles desde Reactivación con la plantilla de recontacto.',
-      whatsapp: `¡Hola! ☔ Se viene semana de lluvia. Dos ideas para tu auto: 1) protégelo antes con cera o sellado cerámico, y 2) cuando pare, pasa a sacar el barro con un lavado full o de chasis. ${SIN_RESERVA} Para el sellado cerámico y el chasis también puedes reservar hora escribiéndonos por aquí.${BAJA}`,
+      whatsapp: `¡Hola! ☔ *Se viene semana de lluvia*\n\nDos ideas para tu auto:\n1️⃣ Protégelo antes con cera o sellado cerámico\n2️⃣ Cuando pare, pasa a sacar el barro con un lavado full o de chasis\n\n${SIN_RESERVA}\nPara el sellado cerámico y el chasis también puedes reservar hora escribiéndonos por aquí.`,
     },
 
     // ---- Aprovechar el bache de tráfico ----

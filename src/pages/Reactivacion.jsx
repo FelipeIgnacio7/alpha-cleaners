@@ -91,7 +91,7 @@ function TemplateEditor({ segment, value, onChange, onReset }) {
       <textarea
         value={value}
         onChange={e => onChange(e.target.value)}
-        rows={3}
+        rows={10}
         className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2.5 text-sm text-gray-200 resize-none focus:outline-none focus:border-blue-500/50"
       />
     </div>

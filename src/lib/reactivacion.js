@@ -205,13 +205,13 @@ const DIRECCION = 'Av. Pedro Fontova 7420, Huechuraba'
 // de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 40
-  const oferta = `Vuelve de lunes a viernes (válido hasta el {{vence}}) y obtén un ${pct}% de descuento en tu lavado.`
-  const donde = `📍 Te esperamos en ${DIRECCION}, sin reserva: llegas y te atendemos.`
+  const oferta = `🎁 *${pct}% de descuento* en tu lavado, de lunes a viernes (válido hasta el {{vence}}).`
+  const donde = `📍 ${DIRECCION}\nSin reserva: llegas y te atendemos.`
   const templates = {
-    nuevo: `Hola {{nombre}}, ¡gracias por visitar Alpha Cleaners! 🚗✨ ¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar. Si necesitas algo, escríbenos por aquí.`,
-    enRiesgo: `Hola {{nombre}}, hace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨ ${oferta} ${donde}`,
-    muyFrio: `Hola {{nombre}}, ¿cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗 ${oferta} ${donde}`,
-    perdido: `Hola {{nombre}}, te escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos. ${oferta} ${donde}`,
+    nuevo: `Hola {{nombre}} 👋\n\n¡Gracias por visitar Alpha Cleaners! 🚗✨\n\n¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar.\n\nSi necesitas algo, escríbenos por aquí.`,
+    enRiesgo: `Hola {{nombre}} 👋\n\nHace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨\n\n${oferta}\n\n${donde}`,
+    muyFrio: `Hola {{nombre}} 👋\n\n¿Cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗\n\n${oferta}\n\n${donde}`,
+    perdido: `Hola {{nombre}} 👋\n\nTe escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos.\n\n${oferta}\n\n${donde}`,
   }
   return templates[segmentKey] || templates.enRiesgo
 }

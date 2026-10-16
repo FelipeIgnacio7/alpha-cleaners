@@ -102,7 +102,7 @@ function InsightCard({ tag, title, body, whatsapp, accent = 'blue' }) {
       <p className="text-sm text-gray-300 leading-relaxed mt-1">{body}</p>
       {whatsapp && (
         <div className="mt-3 bg-black/20 border border-white/5 rounded-lg p-3">
-          <p className="text-xs text-gray-400 italic leading-relaxed">"{whatsapp}"</p>
+          <p className="text-xs text-gray-400 italic leading-relaxed whitespace-pre-line">"{whatsapp}"</p>
           <div className="mt-2">
             <CopyButton text={whatsapp} />
           </div>
