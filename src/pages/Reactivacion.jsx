@@ -98,6 +98,8 @@ function TemplateEditor({ segment, value, onChange, onReset }) {
   )
 }
 
+const PRIORIDAD_CLASES = { alta: 'text-emerald-400 font-medium', media: 'text-amber-400', base: 'text-gray-500' }
+
 function ClientRow({ client, template, checked, onToggle }) {
   return (
     <tr className={`border-b border-gray-800/60 ${!client.hasPhone ? 'opacity-50' : ''}`}>
@@ -120,7 +122,11 @@ function ClientRow({ client, template, checked, onToggle }) {
             : <span className="flex items-center gap-1 text-gray-600 text-xs"><PhoneOff size={11} /> sin teléfono</span>}
       </td>
       <td className="py-2 pr-3 text-gray-400 text-xs">{client.daysSinceLast}d sin visita</td>
-      <td className="py-2 pr-3 text-gray-400 text-xs">{client.visits} visitas</td>
+      <td className="py-2 pr-3 text-gray-400 text-xs whitespace-nowrap">
+        {client.prioridad
+          ? <>{client.visitasRecientes} en 6 meses <span className={PRIORIDAD_CLASES[client.prioridad]}>· {client.prioridad}</span></>
+          : `${client.visits} visitas`}
+      </td>
       <td className="py-2">
         {client.hasPhone && (
           <CopyButton text={interpolate(template, client)} label="Copiar" />
@@ -237,7 +243,7 @@ export default function Reactivacion() {
       setError(null)
       try {
         const [txnRows, ptRows, contactoRows, trabajoRows] = await Promise.all([
-          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, cliente:webhook_raw->>cliente', 'id'),
+          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, local_id, tipo_servicio, cliente:webhook_raw->>cliente', 'id'),
           fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto', 'patente'),
           fetchAllPaginated('contactos_clientes', 'nombre, telefono, email, no_contactar, opt_out_at', 'id'),
           fetchAllPaginated('trabajos_aquapp', 'patente, fecha, es_membresia', 'id'),

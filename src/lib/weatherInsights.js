@@ -34,9 +34,9 @@ function findRainyStreaks(days) {
 // Qué se puede prometer en los mensajes (confirmado con el catálogo y Aquapp):
 //  - El lavado (simple, full, cera, chasis) es por orden de llegada: no se agenda ni se "guardan cupos".
 //  - Servicios con reserva opcional: tapiz, pulido, detailing, sellado cerámico, motor con vapor, chasis.
-//  - Membresía Gold: desde $39.990/mes (autos) y $44.990/mes (camionetas), se contrata en alphacleaners.cl.
+//  - Membresía Gold: $55.000/mes (autos) y $65.000/mes (camionetas), de lunes a viernes, se contrata en alphacleaners.cl (precios al 16-10-2026).
 //  - No hay descuentos de campaña creados en Aquapp: no se prometen. Si se decide hacer uno, crearlo primero ahí.
-const MEMBRESIA = '*Membresía Gold* 🏅\nDesde $39.990 al mes (autos) o $44.990 (camionetas).\nDetalles y contratación en alphacleaners.cl'
+const MEMBRESIA = '*Membresía Gold* 🏅\n✅ Lavados exteriores ilimitados\n✅ 2 limpiezas interiores al mes\n✅ 10% de descuento en todos nuestros servicios\n\n💳 $55.000 al mes (autos) o $65.000 (camionetas), válida de lunes a viernes.\nContrátala en alphacleaners.cl'
 const SIN_RESERVA = 'Atendemos por orden de llegada, sin reserva.'
 
 // Recomendaciones de negocio en base al pronóstico de una sucursal

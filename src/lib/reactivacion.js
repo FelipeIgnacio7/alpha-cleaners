@@ -15,7 +15,13 @@ export const DEFAULT_SEGMENT_THRESHOLDS = {
   enRiesgo: { minDays: 60, maxDays: 179, minDaysRepetidores: 90 },
   muyFrio: { minDays: 180 },
   perdido: { minDays: 365 },
+  // Candidatos a Membresía Gold (solo Fontova, que es donde se vende). Análisis 16-10-2026:
+  // los socios usan 1,7 visitas/mes y casi ningún no-socio gasta $55.000 al mes (3 de 1.965),
+  // así que el filtro es la FRECUENCIA (viene 2+ veces en un mes), no el gasto.
+  membresia: { ventanaDias: 180, minVisitas: 3, maxDaysLast: 60, localId: 1 },
 }
+
+const ES_MEMBRESIA = /membres[ií]a/i
 
 function normalizeNombre(n) {
   return (n || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -37,9 +43,15 @@ export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = 
   txnRows.forEach(t => {
     const patente = normalizePatente(t.patente)
     if (!patente) { unresolvedCount++; return }
-    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null, socio: false }
+    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null, socio: false, diasMemb: new Set() }
     const d = byPatente[patente]
     const ms = new Date(t.fecha).getTime()
+    const cfg = DEFAULT_SEGMENT_THRESHOLDS.membresia
+    if (ES_MEMBRESIA.test(t.tipo_servicio || '')) {
+      if (hoyMs - ms <= 90 * 86400000) d.socio = true
+    } else if (t.local_id === cfg.localId && hoyMs - ms <= cfg.ventanaDias * 86400000) {
+      d.diasMemb.add(String(t.fecha).slice(0, 10))
+    }
     d.visits++
     d.total += Number(t.monto) || 0
     const nombre = (t.cliente || '').replace(/\s+/g, ' ').trim()
@@ -63,7 +75,15 @@ export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = 
 
   const aggregates = {}
   Object.entries(byPatente).forEach(([patente, d]) => {
+    // Frecuencia reciente en Fontova, para candidatos a membresía
+    const dias = [...d.diasMemb]
+    const porMes = {}
+    dias.forEach(f => { porMes[f.slice(0, 7)] = (porMes[f.slice(0, 7)] || 0) + 1 })
+    const diaSemana = f => new Date(`${f}T12:00:00`).getDay()
     aggregates[patente] = {
+      visitasRecientes: dias.length,
+      mesesCon2: Object.values(porMes).filter(n => n >= 2).length,
+      visitasLaV: dias.filter(f => diaSemana(f) >= 1 && diaSemana(f) <= 5).length,
       patente,
       nombreVenta: d.nombreVenta,
       socio: d.socio,
@@ -93,6 +113,11 @@ const SEGMENT_META = {
     description: 'Entre 6 meses y 1 año sin volver',
     accent: 'rose',
   },
+  membresia: {
+    label: 'Candidatos a membresía',
+    description: 'Clientes de Fontova que no son socios, con 3+ visitas en los últimos 6 meses y la última hace menos de 60 días. Prioridad alta: vinieron 2+ veces en al menos dos meses distintos. Se excluyen los que solo vienen sábado o domingo, y los que vienen sobre todo el fin de semana quedan en prioridad base (la membresía es de lunes a viernes).',
+    accent: 'green',
+  },
   perdido: {
     label: 'Perdidos',
     description: 'Más de un año sin volver — mensaje con mayor incentivo',
@@ -100,13 +125,22 @@ const SEGMENT_META = {
   },
 }
 
+const ORDEN_PRIORIDAD = { alta: 0, media: 1, base: 2 }
+
 // Arma los segmentos a partir de los agregados por patente (sin teléfono aún).
 export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLDS) {
-  const buckets = { nuevo: [], enRiesgo: [], muyFrio: [], perdido: [] }
+  const buckets = { membresia: [], nuevo: [], enRiesgo: [], muyFrio: [], perdido: [] }
+  const m = thresholds.membresia
 
   Object.values(aggregates).forEach(c => {
     if (c.socio) return // socios con membresía vigente: no se les recontacta
     const { daysSinceLast, daysSinceFirst, visits } = c
+    if (c.visitasRecientes >= m.minVisitas && daysSinceLast <= m.maxDaysLast && c.visitasLaV > 0) {
+      c.prioridad = c.visitasLaV * 2 < c.visitasRecientes ? 'base' // viene sobre todo el fin de semana
+        : c.mesesCon2 >= 2 ? 'alta'
+        : (c.mesesCon2 === 1 || c.visitasRecientes >= 4) ? 'media' : 'base'
+      buckets.membresia.push(c)
+    }
     if (daysSinceFirst <= thresholds.nuevo.maxDaysFirst && visits <= thresholds.nuevo.maxVisits) {
       buckets.nuevo.push(c)
     }
@@ -126,7 +160,9 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
     key,
     ...SEGMENT_META[key],
     defaultTemplate: getDefaultTemplate(key),
-    clients: clients.sort((a, b) => a.daysSinceLast - b.daysSinceLast),
+    clients: key === 'membresia'
+      ? clients.sort((a, b) => ORDEN_PRIORIDAD[a.prioridad] - ORDEN_PRIORIDAD[b.prioridad] || b.visitasRecientes - a.visitasRecientes)
+      : clients.sort((a, b) => a.daysSinceLast - b.daysSinceLast),
   }))
 }
 
@@ -212,6 +248,8 @@ export function getDefaultTemplate(segmentKey, opts = {}) {
     enRiesgo: `Hola {{nombre}} 👋\n\nHace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨\n\n${oferta}\n\n${donde}`,
     muyFrio: `Hola {{nombre}} 👋\n\n¿Cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗\n\n${oferta}\n\n${donde}`,
     perdido: `Hola {{nombre}} 👋\n\nTe escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos.\n\n${oferta}\n\n${donde}`,
+    // Precios de alphacleaners.cl al 16-10-2026. Sin descuento: el gancho es la conveniencia.
+    membresia: `Hola {{nombre}} 👋\n\nGracias por preferirnos: en los últimos 6 meses nos visitaste {{visitas}} veces en Alpha Cleaners 🚗✨\n\nComo vienes seguido, te cuento de nuestra *Membresía Gold* 🏅\n✅ Lavados exteriores ilimitados\n✅ 2 limpiezas interiores al mes\n✅ 10% de descuento en todos nuestros servicios\n✅ Café o agua en cada visita\n\n💳 *$55.000 al mes* (autos) o *$65.000* (camionetas), válida de lunes a viernes.\n\nSi lavas 2 o más veces al mes, te conviene. Contrátala en alphacleaners.cl o escríbenos por aquí y te ayudamos.`,
   }
   return templates[segmentKey] || templates.enRiesgo
 }
@@ -239,6 +277,7 @@ export function interpolate(template, client, hoy = new Date()) {
   return template
     .replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
     .replace(/\{\{\s*vence\s*\}\}/gi, fechaVencimiento(hoy))
+    .replace(/\{\{\s*visitas\s*\}\}/gi, String(client.visitasRecientes || client.visits || ''))
 }
 
 // Arma la cola final de envío a partir de los clientes seleccionados de un segmento.
