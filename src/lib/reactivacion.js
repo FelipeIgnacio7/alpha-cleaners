@@ -205,7 +205,7 @@ const BAJA = 'Si no quieres recibir más mensajes, responde NO.'
 // El descuento aplica de lunes a viernes (los sábados y domingos ya hay fila) y vence el viernes
 // de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
 export function getDefaultTemplate(segmentKey, opts = {}) {
-  const pct = opts.discountPct ?? 10
+  const pct = opts.discountPct ?? 40
   const oferta = `Vuelve de lunes a viernes (válido hasta el {{vence}}) y obtén un ${pct}% de descuento en tu lavado.`
   const donde = `📍 Te esperamos en ${DIRECCION}, sin reserva: llegas y te atendemos.`
   const templates = {

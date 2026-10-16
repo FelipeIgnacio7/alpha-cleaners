@@ -76,7 +76,7 @@ function TemplateEditor({ segment, value, onChange, onReset }) {
   return (
     <div className="bg-black/20 border border-white/5 rounded-lg p-3 space-y-2">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <p className="text-xs text-gray-400">Plantilla de mensaje (usa {'{{nombre}}'} para personalizar)</p>
+        <p className="text-xs text-gray-400">Plantilla de mensaje (usa {'{{nombre}}'} y {'{{vence}}'} para personalizar)</p>
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onReset}
