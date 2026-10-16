@@ -2,6 +2,7 @@
 
 Hace lo mismo que los botones "Ventas / Servicios" y "Trabajos" de Ingresos:
   - Movimientos de caja -> transacciones_lavado (solo agrega lo que falta; reintentos no duplican)
+                           -> movimientos_caja (alimenta "Balance por billetera"; reemplaza el rango del archivo)
   - Trabajos            -> trabajos_aquapp (reemplaza el rango de fechas del archivo)
 
 Uso:
@@ -119,6 +120,34 @@ def cargar_caja(path):
           f'  -> {"CUADRA con el archivo" if len(despues) == len(ventas) else "DIFERENCIA, revisar"}')
 
 
+def cargar_movimientos(path):
+    """movimientos_caja: se reemplaza el rango de fechas del archivo (nunca se acumulan cargas repetidas)."""
+    rows = read_csv(path)
+    out = []
+    for r in rows:
+        if (r.get('Moneda') or 'clp').lower() != 'clp' or not r.get('Fecha'):
+            continue
+        monto = abs(float(r.get('Monto') or 0))
+        if monto <= 0:
+            continue
+        out.append(dict(
+            local_id=local_id(r.get('Sucursal')), tipo=(r.get('Tipo') or 'ingreso').lower() or 'ingreso',
+            categoria=r.get('Categoria') or r.get('Categoría') or None,
+            subcategoria=r.get('Subcategoría') or r.get('Subcategoria') or None,
+            monto=monto, billetera=r.get('Billetera') or None, fecha=r['Fecha'], detalle=r.get('Detalle') or None))
+    if not out:
+        print(f'[billeteras] {os.path.basename(path)}: sin movimientos, nada que cargar')
+        return
+    desde, hasta = min(o['fecha'] for o in out), max(o['fecha'] for o in out)
+    api('DELETE', f'movimientos_caja?fecha=gte.{desde}&fecha=lte.{hasta}', prefer='return=minimal')
+    for i in range(0, len(out), 300):
+        api('POST', 'movimientos_caja', out[i:i + 300], prefer='return=minimal')
+    en_base = fetch_all('movimientos_caja', 'monto,tipo', f'fecha=gte.{desde}&fecha=lte.{hasta}')
+    ing = sum(o['monto'] for o in out if o['tipo'] == 'ingreso')
+    print(f'[billeteras] {os.path.basename(path)} ({desde} a {hasta}): {len(out)} movimientos, ingresos ${int(ing):,}'
+          f' | base: {len(en_base)} -> {"CUADRA" if len(en_base) == len(out) else "DIFERENCIA, revisar"}')
+
+
 def cargar_trabajos(path):
     rows = read_csv(path)
     f = lambda r, k: float(r.get(k) or 0)
@@ -164,5 +193,6 @@ if __name__ == '__main__':
         sys.exit('No hay CSV recientes de Aquapp en Descargas (menos de 3 días).')
     if caja:
         cargar_caja(caja)
+        cargar_movimientos(caja)
     if trab:
         cargar_trabajos(trab)

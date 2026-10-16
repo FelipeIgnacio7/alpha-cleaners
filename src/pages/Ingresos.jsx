@@ -550,6 +550,7 @@ function ModalImportTrabajos({ onClose, onDone }) {
 function ResumenTrabajos({ reloadKey }) {
   const [mes, setMes] = useState('')
   const [data, setData] = useState(null)
+  const [flujo, setFlujo] = useState({ monto: 0, cobros: 0 })
 
   useEffect(() => {
     async function load() {
@@ -570,7 +571,15 @@ function ResumenTrabajos({ reloadKey }) {
         all.push(...d)
         if (d.length < 1000) break
       }
+      let flujo = 0, cobros = 0
+      for (let from = 0; ; from += 1000) {
+        const { data: d } = await supabase.from('transacciones_lavado').select('monto').gte('fecha', first).lte('fecha', last).order('id').range(from, from + 999)
+        if (!d) break
+        d.forEach(r => { flujo += Number(r.monto); cobros++ })
+        if (d.length < 1000) break
+      }
       setData(all)
+      setFlujo({ monto: flujo, cobros })
     }
     load()
   }, [mes, reloadKey])
@@ -587,8 +596,8 @@ function ResumenTrabajos({ reloadKey }) {
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-200">Ventas por trabajo vs. cobrado</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Reporte "Trabajos" de Aquapp. Es lo que Aquapp llama Resultado, antes de cobrar.</p>
+          <h3 className="text-sm font-semibold text-gray-200">Conciliación con Aquapp</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Mismos conceptos que Informes de Aquapp: lo vendido, la plata que entró y lo que falta cobrar.</p>
         </div>
         <input type="month" value={mes} onChange={e => e.target.value && setMes(e.target.value)} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
@@ -598,10 +607,15 @@ function ResumenTrabajos({ reloadKey }) {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Trabajos</p><p className="text-lg font-bold text-blue-400">{data.length.toLocaleString('es-CL')}</p><p className="text-xs text-gray-500">{socios.length} de membresía</p></div>
-            <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Venta neta</p><p className="text-lg font-bold text-gray-100">{fmt(neto)}</p></div>
-            <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Cobrado</p><p className="text-lg font-bold text-green-400">{fmt(cobrado)}</p></div>
+            <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Monto vendido</p><p className="text-lg font-bold text-gray-100">{fmt(neto)}</p><p className="text-xs text-gray-500">trabajos hechos, cobrados o no</p></div>
+            <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Flujo de dinero</p><p className="text-lg font-bold text-green-400">{fmt(flujo.monto)}</p><p className="text-xs text-gray-500">{flujo.cobros.toLocaleString('es-CL')} cobros que entraron en el mes</p></div>
             <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Por cobrar</p><p className="text-lg font-bold text-amber-400">{fmt(porCobrar)}</p>{curico.length > 0 && <p className="text-xs text-gray-500">Curicó: {fmt(sum(curico, 'monto') - sum(curico, 'descuento') - sum(curico, 'cobrado'))}</p>}</div>
           </div>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            El <span className="text-gray-300">Monto vendido</span> cuenta el trabajo el día que se hace. El <span className="text-gray-300">Flujo de dinero</span> cuenta la plata el día que se cobra
+            (incluye pagos de trabajos de otros meses y pagos extra), por eso no es igual a Monto vendido menos Por cobrar. El Flujo es lo que realmente entró;
+            el "Saldo financiero" de Aquapp es el acumulado histórico y no sirve para comparar un mes.
+          </p>
         </>
       )}
     </div>
