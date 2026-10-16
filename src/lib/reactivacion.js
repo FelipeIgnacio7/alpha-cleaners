@@ -115,7 +115,12 @@ const SEGMENT_META = {
   },
   membresia: {
     label: 'Candidatos a membresía',
-    description: 'Clientes de Fontova que no son socios, con 3+ visitas en los últimos 6 meses y la última hace menos de 60 días. Prioridad alta: vinieron 2+ veces en al menos dos meses distintos. Se excluyen los que solo vienen sábado o domingo, y los que vienen sobre todo el fin de semana quedan en prioridad base (la membresía es de lunes a viernes).',
+    description: 'Clientes de Fontova que no son socios, con 3+ visitas en los últimos 6 meses (la mayoría de lunes a viernes) y la última hace menos de 60 días. Prioridad alta: vinieron 2+ veces en al menos dos meses distintos.',
+    accent: 'green',
+  },
+  membresiaFinde: {
+    label: 'Membresía · clientes de fin de semana',
+    description: 'Mismo criterio, pero vienen sobre todo sábado o domingo, que es cuando hay más fila. La membresía es de lunes a viernes, así que el mensaje les vende cambiar al día de semana: menos espera y lavados ilimitados.',
     accent: 'green',
   },
   perdido: {
@@ -125,21 +130,22 @@ const SEGMENT_META = {
   },
 }
 
+export const SEGMENT_KEYS = Object.keys(SEGMENT_META)
+
 const ORDEN_PRIORIDAD = { alta: 0, media: 1, base: 2 }
 
 // Arma los segmentos a partir de los agregados por patente (sin teléfono aún).
 export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLDS) {
-  const buckets = { membresia: [], nuevo: [], enRiesgo: [], muyFrio: [], perdido: [] }
+  const buckets = { membresia: [], membresiaFinde: [], nuevo: [], enRiesgo: [], muyFrio: [], perdido: [] }
   const m = thresholds.membresia
 
   Object.values(aggregates).forEach(c => {
     if (c.socio) return // socios con membresía vigente: no se les recontacta
     const { daysSinceLast, daysSinceFirst, visits } = c
-    if (c.visitasRecientes >= m.minVisitas && daysSinceLast <= m.maxDaysLast && c.visitasLaV > 0) {
-      c.prioridad = c.visitasLaV * 2 < c.visitasRecientes ? 'base' // viene sobre todo el fin de semana
-        : c.mesesCon2 >= 2 ? 'alta'
-        : (c.mesesCon2 === 1 || c.visitasRecientes >= 4) ? 'media' : 'base'
-      buckets.membresia.push(c)
+    if (c.visitasRecientes >= m.minVisitas && daysSinceLast <= m.maxDaysLast) {
+      c.prioridad = c.mesesCon2 >= 2 ? 'alta' : (c.mesesCon2 === 1 || c.visitasRecientes >= 4) ? 'media' : 'base'
+      // La membresía es de lunes a viernes: a quien viene sobre todo el fin de semana se le vende el cambio de día.
+      buckets[c.visitasLaV * 2 >= c.visitasRecientes ? 'membresia' : 'membresiaFinde'].push(c)
     }
     if (daysSinceFirst <= thresholds.nuevo.maxDaysFirst && visits <= thresholds.nuevo.maxVisits) {
       buckets.nuevo.push(c)
@@ -160,7 +166,7 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
     key,
     ...SEGMENT_META[key],
     defaultTemplate: getDefaultTemplate(key),
-    clients: key === 'membresia'
+    clients: key.startsWith('membresia')
       ? clients.sort((a, b) => ORDEN_PRIORIDAD[a.prioridad] - ORDEN_PRIORIDAD[b.prioridad] || b.visitasRecientes - a.visitasRecientes)
       : clients.sort((a, b) => a.daysSinceLast - b.daysSinceLast),
   }))
@@ -237,6 +243,10 @@ export function applyPersistedState(segments, sentRecords = [], savedTemplates =
 // Plantilla default por segmento. Es solo un punto de partida — se edita en la UI.
 const DIRECCION = 'Av. Pedro Fontova 7420, Huechuraba'
 
+const BENEFICIOS_GOLD = '✅ Lavados exteriores ilimitados\n✅ 2 limpiezas interiores al mes\n✅ 10% de descuento en todos nuestros servicios\n✅ Café o agua en cada visita'
+const PRECIO_GOLD = '💳 *$55.000 al mes* (autos) o *$65.000* (camionetas), válida de lunes a viernes.'
+const CIERRE_GOLD = 'Contrátala en alphacleaners.cl o escríbenos por aquí y te ayudamos.'
+
 // El descuento aplica de lunes a viernes (los sábados y domingos ya hay fila) y vence el viernes
 // de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
 export function getDefaultTemplate(segmentKey, opts = {}) {
@@ -249,7 +259,10 @@ export function getDefaultTemplate(segmentKey, opts = {}) {
     muyFrio: `Hola {{nombre}} 👋\n\n¿Cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗\n\n${oferta}\n\n${donde}`,
     perdido: `Hola {{nombre}} 👋\n\nTe escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos.\n\n${oferta}\n\n${donde}`,
     // Precios de alphacleaners.cl al 16-10-2026. Sin descuento: el gancho es la conveniencia.
-    membresia: `Hola {{nombre}} 👋\n\nGracias por preferirnos: en los últimos 6 meses nos visitaste {{visitas}} veces en Alpha Cleaners 🚗✨\n\nComo vienes seguido, te cuento de nuestra *Membresía Gold* 🏅\n✅ Lavados exteriores ilimitados\n✅ 2 limpiezas interiores al mes\n✅ 10% de descuento en todos nuestros servicios\n✅ Café o agua en cada visita\n\n💳 *$55.000 al mes* (autos) o *$65.000* (camionetas), válida de lunes a viernes.\n\nSi lavas 2 o más veces al mes, te conviene. Contrátala en alphacleaners.cl o escríbenos por aquí y te ayudamos.`,
+    membresia: `Hola {{nombre}} 👋\n\nGracias por preferirnos: en los últimos 6 meses nos visitaste {{visitas}} veces en Alpha Cleaners 🚗✨\n\nComo vienes seguido, te cuento de nuestra *Membresía Gold* 🏅\n${BENEFICIOS_GOLD}\n\n${PRECIO_GOLD}\n\nSi lavas 2 o más veces al mes, te conviene. ${CIERRE_GOLD}`,
+    // Vienen el fin de semana, cuando hay más fila (sábado ~32 ventas/día vs. 13–21 de lunes a viernes):
+    // se les vende cambiar al día de semana, sin espera y sin pagar cada lavado.
+    membresiaFinde: `Hola {{nombre}} 👋\n\nGracias por preferirnos: en los últimos 6 meses nos visitaste {{visitas}} veces en Alpha Cleaners 🚗✨\n\nVimos que sueles venir el fin de semana, que es cuando más fila hay. ¿Te tinca lavar de lunes a viernes, con menos espera y sin pagar cada lavado? Para eso es nuestra *Membresía Gold* 🏅\n${BENEFICIOS_GOLD}\n\n${PRECIO_GOLD}\n\nPasa el día de semana que más te acomode. ${CIERRE_GOLD}`,
   }
   return templates[segmentKey] || templates.enRiesgo
 }

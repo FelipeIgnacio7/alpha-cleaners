@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, AlertTriangle, MessageCircle, Check, Phone, PhoneOff, RotateCcw, ClipboardCopy } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  DEFAULT_SEGMENT_THRESHOLDS, buildClientAggregates, buildSegments,
+  SEGMENT_KEYS, buildClientAggregates, buildSegments,
   enrichWithContact, applyPersistedState, buildSendQueue, formatQueueForClipboard, interpolate,
 } from '../lib/reactivacion'
 
@@ -266,7 +266,7 @@ export default function Reactivacion() {
         }
 
         const savedTemplates = {}
-        Object.keys(DEFAULT_SEGMENT_THRESHOLDS).forEach(key => {
+        SEGMENT_KEYS.forEach(key => {
           const saved = localStorage.getItem(TEMPLATE_KEY(key))
           if (saved) savedTemplates[key] = saved
         })
