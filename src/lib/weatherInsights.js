@@ -36,7 +36,7 @@ function findRainyStreaks(days) {
 //  - Servicios con reserva opcional: tapiz, pulido, detailing, sellado cerámico, motor con vapor, chasis.
 //  - Membresía Gold: desde $39.990/mes (autos) y $44.990/mes (camionetas), se contrata en alphacleaners.cl.
 //  - No hay descuentos de campaña creados en Aquapp: no se prometen. Si se decide hacer uno, crearlo primero ahí.
-const BAJA = ' Si no quieres recibir más mensajes, responde NO.'
+const BAJA = ''
 const MEMBRESIA = 'Membresía Gold: desde $39.990 al mes (autos) o $44.990 (camionetas). Detalles y contratación en alphacleaners.cl.'
 const SIN_RESERVA = 'Atendemos por orden de llegada, sin reserva.'
 

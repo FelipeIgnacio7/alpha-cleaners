@@ -200,7 +200,6 @@ export function applyPersistedState(segments, sentRecords = [], savedTemplates =
 
 // Plantilla default por segmento. Es solo un punto de partida — se edita en la UI.
 const DIRECCION = 'Av. Pedro Fontova 7420, Huechuraba'
-const BAJA = 'Si no quieres recibir más mensajes, responde NO.'
 
 // El descuento aplica de lunes a viernes (los sábados y domingos ya hay fila) y vence el viernes
 // de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
@@ -210,9 +209,9 @@ export function getDefaultTemplate(segmentKey, opts = {}) {
   const donde = `📍 Te esperamos en ${DIRECCION}, sin reserva: llegas y te atendemos.`
   const templates = {
     nuevo: `Hola {{nombre}}, ¡gracias por visitar Alpha Cleaners! 🚗✨ ¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar. Si necesitas algo, escríbenos por aquí.`,
-    enRiesgo: `Hola {{nombre}}, hace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨ ${oferta} ${donde} ${BAJA}`,
-    muyFrio: `Hola {{nombre}}, ¿cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗 ${oferta} ${donde} ${BAJA}`,
-    perdido: `Hola {{nombre}}, te escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos. ${oferta} ${donde} ${BAJA}`,
+    enRiesgo: `Hola {{nombre}}, hace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨ ${oferta} ${donde}`,
+    muyFrio: `Hola {{nombre}}, ¿cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗 ${oferta} ${donde}`,
+    perdido: `Hola {{nombre}}, te escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos. ${oferta} ${donde}`,
   }
   return templates[segmentKey] || templates.enRiesgo
 }
