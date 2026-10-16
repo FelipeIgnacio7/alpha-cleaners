@@ -361,7 +361,7 @@ export default function Reactivacion() {
       <div>
         <h1 className="text-xl font-bold text-white">Reactivación de Clientes</h1>
         <p className="text-sm text-gray-400 mt-0.5">
-          Segmentos recomendados con plantilla editable para reenganchar clientes vía WhatsApp (Aquapp). El envío sigue siendo manual.
+          Segmentos recomendados con plantilla editable para reenganchar clientes vía WhatsApp. Aprobada la cola, el envío lo hace el agente.
         </p>
       </div>
 

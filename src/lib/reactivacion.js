@@ -2,16 +2,17 @@
 // Trabaja sobre transacciones_lavado (patente, monto, fecha), cruzado con
 // patente_telefono (para resolver teléfono/nombre) y contactos_clientes (fallback de nombre).
 // Objetivo: agrupar clientes por patente, segmentarlos por recencia/frecuencia,
-// y armar una cola de mensajes de WhatsApp editable para reactivarlos vía Aquapp.
-// El envío real sigue siendo manual en Aquapp (no tiene API) — este archivo solo
-// produce la recomendación y la cola aprobada, nunca envía nada.
+// y armar una cola de mensajes de WhatsApp editable para reactivarlos.
+// Este archivo solo produce la recomendación y la cola aprobada, nunca envía nada
+// (el envío lo hace el agente de WhatsApp con la cola aprobada).
 
 // Umbrales de segmentación, visibles y ajustables (no números mágicos escondidos).
 // El caso conocido de referencia (~25 clientes, ~600 días sin volver, 1 sola visita)
 // cae dentro de "perdido", que usa un corte más estricto que "muyFrio".
 export const DEFAULT_SEGMENT_THRESHOLDS = {
   nuevo: { maxDaysFirst: 45, maxVisits: 2 },
-  enRiesgo: { minDays: 60, maxDays: 179 },
+  // Con 2+ visitas vuelven solos con más frecuencia (17% a los 60 días), así que se les espera hasta los 90.
+  enRiesgo: { minDays: 60, maxDays: 179, minDaysRepetidores: 90 },
   muyFrio: { minDays: 180 },
   perdido: { minDays: 365 },
 }
@@ -113,7 +114,10 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
       buckets.perdido.push(c)
     } else if (daysSinceLast >= thresholds.muyFrio.minDays) {
       buckets.muyFrio.push(c)
-    } else if (daysSinceLast >= thresholds.enRiesgo.minDays && daysSinceLast <= thresholds.enRiesgo.maxDays) {
+    } else if (
+      daysSinceLast >= (visits >= 2 ? thresholds.enRiesgo.minDaysRepetidores : thresholds.enRiesgo.minDays)
+      && daysSinceLast <= thresholds.enRiesgo.maxDays
+    ) {
       buckets.enRiesgo.push(c)
     }
   })
@@ -194,16 +198,15 @@ export function applyPersistedState(segments, sentRecords = [], savedTemplates =
   }))
 }
 
-// Plantilla default por segmento, inspirada en la plantilla real "recontacto"
-// de Aquapp (15% de descuento). Es solo un punto de partida — se edita en la UI.
+// Plantilla default por segmento. Es solo un punto de partida — se edita en la UI.
 const DIRECCION = 'Av. Pedro Fontova 7420, Huechuraba'
 const BAJA = 'Si no quieres recibir más mensajes, responde NO.'
 
-// Ofertas y textos alineados con la plantilla "Recontacto" de Aquapp (10%, "esta semana", dirección).
-// El lavado es por orden de llegada (sin reserva), por eso no se invita a "agendar".
+// El descuento aplica de lunes a viernes (los sábados y domingos ya hay fila) y vence el viernes
+// de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 10
-  const oferta = `Vuelve esta semana y obtén un ${pct}% de descuento en tu lavado.`
+  const oferta = `Vuelve de lunes a viernes (válido hasta el {{vence}}) y obtén un ${pct}% de descuento en tu lavado.`
   const donde = `📍 Te esperamos en ${DIRECCION}, sin reserva: llegas y te atendemos.`
   const templates = {
     nuevo: `Hola {{nombre}}, ¡gracias por visitar Alpha Cleaners! 🚗✨ ¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar. Si necesitas algo, escríbenos por aquí.`,
@@ -225,8 +228,18 @@ export function nombreParaSaludo(nombre) {
   return primero.charAt(0).toLocaleUpperCase('es-CL') + primero.slice(1).toLocaleLowerCase('es-CL')
 }
 
-export function interpolate(template, client) {
-  return template.replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
+// Viernes de esta semana ("viernes 23 de octubre"); si hoy es sábado o domingo, el de la próxima.
+export function fechaVencimiento(hoy = new Date()) {
+  const dia = hoy.getDay() // 0 dom … 6 sáb
+  const faltan = dia === 6 ? 6 : (5 - dia + 7) % 7
+  const v = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + faltan)
+  return `viernes ${v.getDate()} de ${v.toLocaleDateString('es-CL', { month: 'long' })}`
+}
+
+export function interpolate(template, client, hoy = new Date()) {
+  return template
+    .replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
+    .replace(/\{\{\s*vence\s*\}\}/gi, fechaVencimiento(hoy))
 }
 
 // Arma la cola final de envío a partir de los clientes seleccionados de un segmento.
