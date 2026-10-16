@@ -231,7 +231,7 @@ export function nombreParaSaludo(nombre) {
 // Viernes de esta semana ("viernes 23 de octubre"); si hoy es sábado o domingo, el de la próxima.
 export function fechaVencimiento(hoy = new Date()) {
   const dia = hoy.getDay() // 0 dom … 6 sáb
-  const faltan = dia === 6 ? 6 : (5 - dia + 7) % 7
+  const faltan = dia === 6 ? 6 : dia === 5 ? 7 : 5 - dia // viernes: el mismo día no alcanza, va al siguiente
   const v = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + faltan)
   return `viernes ${v.getDate()} de ${v.toLocaleDateString('es-CL', { month: 'long' })}`
 }
