@@ -11,8 +11,8 @@
 // cae dentro de "perdido", que usa un corte más estricto que "muyFrio".
 export const DEFAULT_SEGMENT_THRESHOLDS = {
   nuevo: { maxDaysFirst: 45, maxVisits: 2 },
-  enRiesgo: { minDays: 60, maxDays: 180 },
-  muyFrio: { minDays: 180, maxVisits: 2 },
+  enRiesgo: { minDays: 60, maxDays: 179 },
+  muyFrio: { minDays: 180 },
   perdido: { minDays: 365 },
 }
 
@@ -26,7 +26,9 @@ function normalizePatente(p) {
 
 // Agrupa transacciones por patente. Filas sin patente quedan fuera de los
 // agregados pero se cuentan aparte para reportar la fracción no vinculable.
-export function buildClientAggregates(txnRows, now = new Date()) {
+// `trabajosRows` (trabajos_aquapp: patente, fecha, es_membresia) completa la última visita con
+// trabajos que no dejaron una venta pagada (membresías, deudas, cobros pendientes) y detecta socios.
+export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = []) {
   const hoyMs = now.getTime()
   const byPatente = {}
   let unresolvedCount = 0
@@ -34,7 +36,7 @@ export function buildClientAggregates(txnRows, now = new Date()) {
   txnRows.forEach(t => {
     const patente = normalizePatente(t.patente)
     if (!patente) { unresolvedCount++; return }
-    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null }
+    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null, socio: false }
     const d = byPatente[patente]
     const ms = new Date(t.fecha).getTime()
     d.visits++
@@ -49,11 +51,21 @@ export function buildClientAggregates(txnRows, now = new Date()) {
     if (ms < d.firstMs) d.firstMs = ms
   })
 
+  const hace90Ms = hoyMs - 90 * 86400000
+  trabajosRows.forEach(t => {
+    const d = byPatente[normalizePatente(t.patente)]
+    if (!d) return
+    const ms = new Date(t.fecha).getTime()
+    if (ms > d.lastMs) d.lastMs = ms
+    if (t.es_membresia && ms >= hace90Ms) d.socio = true
+  })
+
   const aggregates = {}
   Object.entries(byPatente).forEach(([patente, d]) => {
     aggregates[patente] = {
       patente,
       nombreVenta: d.nombreVenta,
+      socio: d.socio,
       visits: d.visits,
       avgTicket: d.visits > 0 ? d.total / d.visits : 0,
       daysSinceLast: Math.floor((hoyMs - d.lastMs) / 86400000),
@@ -77,7 +89,7 @@ const SEGMENT_META = {
   },
   muyFrio: {
     label: 'Muy frío',
-    description: 'Llevan mucho tiempo sin volver y pocas visitas en total',
+    description: 'Entre 6 meses y 1 año sin volver',
     accent: 'rose',
   },
   perdido: {
@@ -92,13 +104,14 @@ export function buildSegments(aggregates, thresholds = DEFAULT_SEGMENT_THRESHOLD
   const buckets = { nuevo: [], enRiesgo: [], muyFrio: [], perdido: [] }
 
   Object.values(aggregates).forEach(c => {
+    if (c.socio) return // socios con membresía vigente: no se les recontacta
     const { daysSinceLast, daysSinceFirst, visits } = c
     if (daysSinceFirst <= thresholds.nuevo.maxDaysFirst && visits <= thresholds.nuevo.maxVisits) {
       buckets.nuevo.push(c)
     }
     if (daysSinceLast >= thresholds.perdido.minDays) {
       buckets.perdido.push(c)
-    } else if (daysSinceLast >= thresholds.muyFrio.minDays && visits <= thresholds.muyFrio.maxVisits) {
+    } else if (daysSinceLast >= thresholds.muyFrio.minDays) {
       buckets.muyFrio.push(c)
     } else if (daysSinceLast >= thresholds.enRiesgo.minDays && daysSinceLast <= thresholds.enRiesgo.maxDays) {
       buckets.enRiesgo.push(c)
@@ -183,27 +196,47 @@ export function applyPersistedState(segments, sentRecords = [], savedTemplates =
 
 // Plantilla default por segmento, inspirada en la plantilla real "recontacto"
 // de Aquapp (15% de descuento). Es solo un punto de partida — se edita en la UI.
+const DIRECCION = 'Av. Pedro Fontova 7420, Huechuraba'
+const BAJA = 'Si no quieres recibir más mensajes, responde NO.'
+
+// Ofertas y textos alineados con la plantilla "Recontacto" de Aquapp (10%, "esta semana", dirección).
+// El lavado es por orden de llegada (sin reserva), por eso no se invita a "agendar".
 export function getDefaultTemplate(segmentKey, opts = {}) {
-  const discountPct = opts.discountPct ?? 15
+  const pct = opts.discountPct ?? 10
+  const oferta = `Vuelve esta semana y obtén un ${pct}% de descuento en tu lavado.`
+  const donde = `📍 Te esperamos en ${DIRECCION}, sin reserva: llegas y te atendemos.`
   const templates = {
-    nuevo: 'Hola {{nombre}}! Vimos que nos visitaste hace poco en Alpha Cleaners 🚗✨ ¿Cómo te fue con el servicio? Cualquier cosa que necesites, escríbenos por aquí.',
-    enRiesgo: `Hola {{nombre}}! Te extrañamos en Alpha Cleaners 👋 Hace un tiempo que no te vemos por el local. Te dejamos un ${discountPct}% de descuento en tu próxima visita para que vuelvas a dejar el auto como nuevo. ¿Te gustaría agendar?`,
-    muyFrio: `Hola {{nombre}}! Ha pasado tiempo desde tu última visita a Alpha Cleaners 🚗 Queremos que vuelvas: tienes un ${discountPct}% de descuento en tu próximo lavado. ¿Agendamos esta semana?`,
-    perdido: `Hola {{nombre}}! Te escribimos de Alpha Cleaners porque hace mucho no te vemos 🙌 Como cliente que valoramos, te dejamos un ${discountPct}% de descuento especial para que vuelvas a probarnos. ¿Te acomoda esta semana?`,
+    nuevo: `Hola {{nombre}}, ¡gracias por visitar Alpha Cleaners! 🚗✨ ¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar. Si necesitas algo, escríbenos por aquí.`,
+    enRiesgo: `Hola {{nombre}}, hace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨ ${oferta} ${donde} ${BAJA}`,
+    muyFrio: `Hola {{nombre}}, ¿cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗 ${oferta} ${donde} ${BAJA}`,
+    perdido: `Hola {{nombre}}, te escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos. ${oferta} ${donde} ${BAJA}`,
   }
   return templates[segmentKey] || templates.enRiesgo
 }
 
+const ES_EMPRESA = /\b(spa|ltda|limitada|s\.a|sociedad|empresa|ingenier\w*|servicios|transportes?|constructora|comercial|inversiones|consultor\w*)\b/i
+
+// "MIGUEL DIAZ" / "juan pablo muñoz" -> "Miguel" / "Juan". Empresas y nombres dudosos -> null.
+export function nombreParaSaludo(nombre) {
+  const limpio = (nombre || '').replace(/\s+/g, ' ').trim()
+  if (!limpio || ES_EMPRESA.test(limpio)) return null
+  const primero = limpio.split(' ')[0]
+  if (primero.length < 2 || !/^[\p{L}'-]+$/u.test(primero)) return null
+  return primero.charAt(0).toLocaleUpperCase('es-CL') + primero.slice(1).toLocaleLowerCase('es-CL')
+}
+
 export function interpolate(template, client) {
-  return template.replace(/\{\{\s*nombre\s*\}\}/gi, client.nombre || 'estimado cliente')
+  return template.replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
 }
 
 // Arma la cola final de envío a partir de los clientes seleccionados de un segmento.
 export function buildSendQueue(segment, selectedPatentes, editedTemplateText) {
   const template = editedTemplateText || segment.template || segment.defaultTemplate
   const selected = new Set(selectedPatentes)
+  const telefonosVistos = new Set() // una misma persona con varios autos recibe un solo mensaje
   return segment.clients
     .filter(c => selected.has(c.patente) && c.hasPhone)
+    .filter(c => !telefonosVistos.has(c.telefono) && telefonosVistos.add(c.telefono))
     .map(c => ({
       patente: c.patente,
       nombre: c.nombre || 'Sin nombre',

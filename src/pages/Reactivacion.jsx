@@ -211,6 +211,7 @@ export default function Reactivacion() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [txns, setTxns] = useState([])
+  const [trabajos, setTrabajos] = useState([])
   const [patenteTelefono, setPatenteTelefono] = useState([])
   const [contactos, setContactos] = useState([])
   const [sentRecords, setSentRecords] = useState([])
@@ -235,12 +236,14 @@ export default function Reactivacion() {
       setLoading(true)
       setError(null)
       try {
-        const [txnRows, ptRows, contactoRows] = await Promise.all([
+        const [txnRows, ptRows, contactoRows, trabajoRows] = await Promise.all([
           fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, cliente:webhook_raw->>cliente', 'id'),
           fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto', 'patente'),
           fetchAllPaginated('contactos_clientes', 'nombre, telefono, email, no_contactar, opt_out_at', 'id'),
+          fetchAllPaginated('trabajos_aquapp', 'patente, fecha, es_membresia', 'id'),
         ])
         setTxns(txnRows)
+        setTrabajos(trabajoRows)
         setPatenteTelefono(ptRows)
         setContactos(contactoRows)
 
@@ -272,8 +275,8 @@ export default function Reactivacion() {
   }, [])
 
   const { aggregates, unresolvedCount, totalCount } = useMemo(
-    () => buildClientAggregates(txns),
-    [txns]
+    () => buildClientAggregates(txns, new Date(), trabajos),
+    [txns, trabajos]
   )
 
   const segments = useMemo(() => {
