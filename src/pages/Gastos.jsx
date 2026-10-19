@@ -245,15 +245,16 @@ export default function Gastos() {
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Proveedor</th>
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Medio</th>
                   <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Local</th>
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Ingresado por</th>
                   <th className="text-right text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Monto</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {loading ? (
-                  <tr><td colSpan={7} className="text-center text-gray-500 py-10">Cargando...</td></tr>
+                  <tr><td colSpan={8} className="text-center text-gray-500 py-10">Cargando...</td></tr>
                 ) : gastos.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center text-gray-500 py-10">Sin gastos registrados.</td></tr>
+                  <tr><td colSpan={8} className="text-center text-gray-500 py-10">Sin gastos registrados.</td></tr>
                 ) : gastos.map(g => (
                   <tr key={g.id} className="hover:bg-gray-800/50 transition-colors">
                     <td className="px-5 py-3 text-gray-300 text-xs font-mono">{g.fecha}</td>
@@ -271,6 +272,11 @@ export default function Gastos() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-gray-400 text-xs">{g.locales?.nombre ?? 'General'}</td>
+                    <td className="px-5 py-3 text-xs">
+                      {g.metodo_carga === 'encargado'
+                        ? <span className="inline-block px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300">Edison · link</span>
+                        : <span className="inline-block px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300">App</span>}
+                    </td>
                     <td className="px-5 py-3 text-right font-semibold text-red-400">{fmt(g.monto)}</td>
                     <td className="px-5 py-3">
                       <button onClick={() => eliminar(g.id)} className="text-gray-600 hover:text-red-400 transition-colors">
