@@ -284,7 +284,7 @@ export function nombreParaSaludo(nombre) {
 
 // En la base los nombres suelen venir sin tilde; así los saludos no se ven descuidados.
 const NOMBRES_CON_TILDE = {
-  maria: 'María', jose: 'José', rene: 'René', sebastian: 'Sebastián', andres: 'Andrés', matias: 'Matías',
+  maria: 'María', belen: 'Belén', marcos: 'Marcos', jose: 'José', rene: 'René', sebastian: 'Sebastián', andres: 'Andrés', matias: 'Matías',
   nicolas: 'Nicolás', tomas: 'Tomás', joaquin: 'Joaquín', ramon: 'Ramón', ivan: 'Iván', adrian: 'Adrián',
   cristian: 'Cristian', julian: 'Julián', martin: 'Martín', agustin: 'Agustín', hector: 'Héctor', victor: 'Víctor',
   german: 'Germán', fabian: 'Fabián', esteban: 'Esteban', angel: 'Ángel', oscar: 'Óscar', cesar: 'César',
