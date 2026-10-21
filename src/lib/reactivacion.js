@@ -277,7 +277,19 @@ export function nombreParaSaludo(nombre) {
   if (!limpio || ES_EMPRESA.test(limpio)) return null
   const primero = limpio.split(' ')[0]
   if (primero.length < 2 || !/^[\p{L}'-]+$/u.test(primero)) return null
-  return primero.charAt(0).toLocaleUpperCase('es-CL') + primero.slice(1).toLocaleLowerCase('es-CL')
+  const minusc = primero.toLocaleLowerCase('es-CL')
+  const bonito = NOMBRES_CON_TILDE[minusc] || minusc.charAt(0).toLocaleUpperCase('es-CL') + minusc.slice(1)
+  return bonito
+}
+
+// En la base los nombres suelen venir sin tilde; así los saludos no se ven descuidados.
+const NOMBRES_CON_TILDE = {
+  maria: 'María', jose: 'José', rene: 'René', sebastian: 'Sebastián', andres: 'Andrés', matias: 'Matías',
+  nicolas: 'Nicolás', tomas: 'Tomás', joaquin: 'Joaquín', ramon: 'Ramón', ivan: 'Iván', adrian: 'Adrián',
+  cristian: 'Cristian', julian: 'Julián', martin: 'Martín', agustin: 'Agustín', hector: 'Héctor', victor: 'Víctor',
+  german: 'Germán', fabian: 'Fabián', esteban: 'Esteban', angel: 'Ángel', oscar: 'Óscar', cesar: 'César',
+  lucia: 'Lucía', valentina: 'Valentina', monica: 'Mónica', veronica: 'Verónica', angelica: 'Angélica',
+  jesus: 'Jesús', raul: 'Raúl', ruben: 'Rubén', ines: 'Inés', claudia: 'Claudia', sofia: 'Sofía',
 }
 
 export function interpolate(template, client) {
