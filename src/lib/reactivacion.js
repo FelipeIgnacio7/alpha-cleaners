@@ -247,11 +247,13 @@ const BENEFICIOS_GOLD = '✅ Lavados exteriores ilimitados\n✅ 2 limpiezas inte
 const PRECIO_GOLD = '💳 *$55.000 al mes* (autos) o *$65.000* (camionetas), válida de lunes a viernes.'
 const CIERRE_GOLD = 'Contrátala en alphacleaners.cl o escríbenos por aquí y te ayudamos.'
 
-// El descuento aplica de lunes a viernes (los sábados y domingos ya hay fila) y vence el viernes
-// de la semana del envío ({{vence}}). El lavado es por orden de llegada, por eso no se invita a "agendar".
+// Campaña de recontacto: descuento de lunes a viernes (sábado y domingo ya hay fila), vigente hasta fin
+// de noviembre 2026. Si se cambia la fecha, avisarle también a Claudio (el bot) para que responda lo mismo.
+// El lavado es por orden de llegada, por eso no se invita a "agendar".
+export const PROMO_VENCE = '30 de noviembre'
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 40
-  const oferta = `🎁 *${pct}% de descuento* en tu lavado, de lunes a viernes (válido hasta el {{vence}}).`
+  const oferta = `🎁 *${pct}% de descuento* en tu lavado, de lunes a viernes (válido hasta el ${PROMO_VENCE}).`
   const donde = `📍 ${DIRECCION}\nSin reserva: llegas y te atendemos.`
   const templates = {
     nuevo: `Hola {{nombre}} 👋\n\n¡Gracias por visitar Alpha Cleaners! 🚗✨\n\n¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar.\n\nSi necesitas algo, escríbenos por aquí.`,
@@ -278,18 +280,10 @@ export function nombreParaSaludo(nombre) {
   return primero.charAt(0).toLocaleUpperCase('es-CL') + primero.slice(1).toLocaleLowerCase('es-CL')
 }
 
-// Viernes de esta semana ("viernes 23 de octubre"); si hoy es sábado o domingo, el de la próxima.
-export function fechaVencimiento(hoy = new Date()) {
-  const dia = hoy.getDay() // 0 dom … 6 sáb
-  const faltan = dia === 6 ? 6 : dia === 5 ? 7 : 5 - dia // viernes: el mismo día no alcanza, va al siguiente
-  const v = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + faltan)
-  return `viernes ${v.getDate()} de ${v.toLocaleDateString('es-CL', { month: 'long' })}`
-}
-
-export function interpolate(template, client, hoy = new Date()) {
+export function interpolate(template, client) {
   return template
     .replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
-    .replace(/\{\{\s*vence\s*\}\}/gi, fechaVencimiento(hoy))
+    .replace(/\{\{\s*vence\s*\}\}/gi, PROMO_VENCE)
     .replace(/\{\{\s*visitas\s*\}\}/gi, String(client.visitasRecientes || client.visits || ''))
 }
 
