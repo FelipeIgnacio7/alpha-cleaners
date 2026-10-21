@@ -256,17 +256,16 @@ const CIERRE_GOLD = 'Contrátala en alphacleaners.cl o escríbenos por aquí y t
 export const PROMO_VENCE = '30 de noviembre'
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 40
-  // Mensaje de recontacto (21-10-2026): se presenta, nombra la marca de su auto y hace cuánto vino, ofrece
-  // el Lavado Full con descuento y cierra con una pregunta. Sin modelo (solo marca), a pedido de Felipe.
-  const recontacto = `Hola {{nombre}} 👋 Te escribe el equipo de Alpha Cleaners.
+  // Mensaje de recontacto v2 (formato corto elegido por Felipe, 21-10-2026): abre con una pregunta sobre su auto,
+  // se presenta, ofrece el Lavado Full con descuento y cierra con una pregunta. Solo marca (sin modelo).
+  const recontacto = `Hola {{nombre}}, ¿cómo ha andado {{auto}}? 🚗 Te escribe el equipo de Alpha Cleaners.
 
-Hace {{hace}} lavamos {{auto}} y queremos que vuelva a brillar ✨
+Hace {{hace}} lo lavamos y te queremos dar *${pct}% de descuento en tu próximo Lavado Full* (lunes a viernes, hasta el ${PROMO_VENCE}).
 
-Te regalamos *${pct}% de descuento en el Lavado Full*, de lunes a viernes hasta el ${PROMO_VENCE}.
+¿Qué día te acomoda?
 
-¿Qué día te queda bien pasar? Te aviso cuánta fila hay para que no esperes 🚗
-
-📍 ${DIRECCION}`
+📍 ${DIRECCION}
+Sin reserva: te atendemos por orden de llegada.`
   const templates = {
     nuevo: `Hola {{nombre}} 👋\n\n¡Gracias por visitar Alpha Cleaners! 🚗✨\n\n¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar.\n\nSi necesitas algo, escríbenos por aquí.`,
     enRiesgo: recontacto,
@@ -309,7 +308,7 @@ export function textoAuto(marca) {
   const m = (marca || '').trim()
   if (!m) return 'tu auto'
   const bonita = m === m.toLowerCase() ? m.replace(/(^|[\s-])(\p{L})/gu, (_, sep, l) => sep + l.toLocaleUpperCase('es-CL')) : m
-  return `tu *${bonita}*`
+  return `tu ${bonita}`
 }
 
 // Días sin venir -> "unos 3 meses" / "más de un año".
