@@ -43,7 +43,7 @@ export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = 
   txnRows.forEach(t => {
     const patente = normalizePatente(t.patente)
     if (!patente) { unresolvedCount++; return }
-    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null, socio: false, diasMemb: new Set() }
+    if (!byPatente[patente]) byPatente[patente] = { visits: 0, total: 0, lastMs: 0, firstMs: Infinity, nombreVenta: null, marca: null, marcaMs: 0, socio: false, diasMemb: new Set() }
     const d = byPatente[patente]
     const ms = new Date(t.fecha).getTime()
     const cfg = DEFAULT_SEGMENT_THRESHOLDS.membresia
@@ -55,6 +55,8 @@ export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = 
     d.visits++
     d.total += Number(t.monto) || 0
     const nombre = (t.cliente || '').replace(/\s+/g, ' ').trim()
+    const marca = (t.marca || '').replace(/\s+/g, ' ').trim()
+    if (marca && ms >= d.marcaMs) { d.marca = marca; d.marcaMs = ms }
     if (ms > d.lastMs) {
       d.lastMs = ms
       if (nombre) d.nombreVenta = nombre
@@ -86,6 +88,7 @@ export function buildClientAggregates(txnRows, now = new Date(), trabajosRows = 
       visitasLaV: dias.filter(f => diaSemana(f) >= 1 && diaSemana(f) <= 5).length,
       patente,
       nombreVenta: d.nombreVenta,
+      marca: d.marca,
       socio: d.socio,
       visits: d.visits,
       avgTicket: d.visits > 0 ? d.total / d.visits : 0,
@@ -253,13 +256,22 @@ const CIERRE_GOLD = 'Contrátala en alphacleaners.cl o escríbenos por aquí y t
 export const PROMO_VENCE = '30 de noviembre'
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 40
-  const oferta = `🎁 *${pct}% de descuento* en tu lavado, de lunes a viernes (válido hasta el ${PROMO_VENCE}).`
-  const donde = `📍 ${DIRECCION}\nSin reserva: llegas y te atendemos.`
+  // Mensaje de recontacto (21-10-2026): se presenta, nombra la marca de su auto y hace cuánto vino, ofrece
+  // el Lavado Full con descuento y cierra con una pregunta. Sin modelo (solo marca), a pedido de Felipe.
+  const recontacto = `Hola {{nombre}} 👋 Te escribe el equipo de Alpha Cleaners.
+
+Hace {{hace}} lavamos {{auto}} y queremos que vuelva a brillar ✨
+
+Te regalamos *${pct}% de descuento en el Lavado Full*, de lunes a viernes hasta el ${PROMO_VENCE}.
+
+¿Qué día te queda bien pasar? Te aviso cuánta fila hay para que no esperes 🚗
+
+📍 ${DIRECCION}`
   const templates = {
     nuevo: `Hola {{nombre}} 👋\n\n¡Gracias por visitar Alpha Cleaners! 🚗✨\n\n¿Cómo te fue con el servicio? Tu opinión nos ayuda a mejorar.\n\nSi necesitas algo, escríbenos por aquí.`,
-    enRiesgo: `Hola {{nombre}} 👋\n\nHace un tiempo que no te vemos por Alpha Cleaners y queremos invitarte a dejar tu auto como nuevo 🚗✨\n\n${oferta}\n\n${donde}`,
-    muyFrio: `Hola {{nombre}} 👋\n\n¿Cómo estás? Ha pasado un tiempo desde tu última visita a Alpha Cleaners 🚗\n\n${oferta}\n\n${donde}`,
-    perdido: `Hola {{nombre}} 👋\n\nTe escribimos de Alpha Cleaners 🙌 Hace mucho que no te vemos y nos encantaría que vuelvas a probarnos.\n\n${oferta}\n\n${donde}`,
+    enRiesgo: recontacto,
+    muyFrio: recontacto,
+    perdido: recontacto,
     // Precios de alphacleaners.cl al 16-10-2026. Sin descuento: el gancho es la conveniencia.
     membresia: `Hola {{nombre}} 👋\n\nGracias por preferirnos: en los últimos 6 meses nos visitaste {{visitas}} veces en Alpha Cleaners 🚗✨\n\nComo vienes seguido, te cuento de nuestra *Membresía Gold* 🏅\n${BENEFICIOS_GOLD}\n\n${PRECIO_GOLD}\n\nSi lavas 2 o más veces al mes, te conviene. ${CIERRE_GOLD}`,
     // Vienen el fin de semana, cuando hay más fila (sábado ~32 ventas/día vs. 13–21 de lunes a viernes):
@@ -292,10 +304,28 @@ const NOMBRES_CON_TILDE = {
   jesus: 'Jesús', raul: 'Raúl', ruben: 'Rubén', ines: 'Inés', claudia: 'Claudia', sofia: 'Sofía',
 }
 
+// "Hyundai" -> "tu *Hyundai*"; sin marca -> "tu auto". Marcas en minúscula se capitalizan (RAM y similares quedan igual).
+export function textoAuto(marca) {
+  const m = (marca || '').trim()
+  if (!m) return 'tu auto'
+  const bonita = m === m.toLowerCase() ? m.replace(/(^|[\s-])(\p{L})/gu, (_, sep, l) => sep + l.toLocaleUpperCase('es-CL')) : m
+  return `tu *${bonita}*`
+}
+
+// Días sin venir -> "unos 3 meses" / "más de un año".
+export function textoHace(dias) {
+  const d = Number(dias) || 0
+  if (d >= 365) return 'más de un año'
+  const meses = Math.max(2, Math.round(d / 30))
+  return `unos ${meses} meses`
+}
+
 export function interpolate(template, client) {
   return template
     .replace(/\{\{\s*nombre\s*\}\}/gi, nombreParaSaludo(client.nombre) || 'estimado cliente')
     .replace(/\{\{\s*vence\s*\}\}/gi, PROMO_VENCE)
+    .replace(/\{\{\s*auto\s*\}\}/gi, textoAuto(client.marca))
+    .replace(/\{\{\s*hace\s*\}\}/gi, textoHace(client.daysSinceLast))
     .replace(/\{\{\s*visitas\s*\}\}/gi, String(client.visitasRecientes || client.visits || ''))
 }
 

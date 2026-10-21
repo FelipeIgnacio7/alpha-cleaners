@@ -76,7 +76,7 @@ function TemplateEditor({ segment, value, onChange, onReset }) {
   return (
     <div className="bg-black/20 border border-white/5 rounded-lg p-3 space-y-2">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <p className="text-xs text-gray-400">Plantilla de mensaje (usa {'{{nombre}}'}, {'{{vence}}'} y {'{{visitas}}'} para personalizar)</p>
+        <p className="text-xs text-gray-400">Plantilla de mensaje (usa {'{{nombre}}'}, {'{{auto}}'}, {'{{hace}}'}, {'{{vence}}'} y {'{{visitas}}'} para personalizar)</p>
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onReset}
@@ -243,7 +243,7 @@ export default function Reactivacion() {
       setError(null)
       try {
         const [txnRows, ptRows, contactoRows, trabajoRows] = await Promise.all([
-          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, local_id, tipo_servicio, cliente:webhook_raw->>cliente', 'id'),
+          fetchAllPaginated('transacciones_lavado', 'patente, monto, fecha, local_id, tipo_servicio, marca, cliente:webhook_raw->>cliente', 'id'),
           fetchAllPaginated('patente_telefono', 'patente, telefono, nombre_venta, nombre_contacto', 'patente'),
           fetchAllPaginated('contactos_clientes', 'nombre, telefono, email, no_contactar, opt_out_at', 'id'),
           fetchAllPaginated('trabajos_aquapp', 'patente, fecha, es_membresia', 'id'),
