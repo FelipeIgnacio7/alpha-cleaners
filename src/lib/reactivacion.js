@@ -256,11 +256,11 @@ const CIERRE_GOLD = 'Contrátala en alphacleaners.cl o escríbenos por aquí y t
 export const PROMO_VENCE = '30 de noviembre'
 export function getDefaultTemplate(segmentKey, opts = {}) {
   const pct = opts.discountPct ?? 40
-  // Mensaje de recontacto v2 (formato corto elegido por Felipe, 21-10-2026): abre con una pregunta sobre su auto,
-  // se presenta, ofrece el Lavado Full con descuento y cierra con una pregunta. Solo marca (sin modelo).
-  const recontacto = `Hola {{nombre}}, ¿cómo ha andado {{auto}}? 🚗 Te escribe el equipo de Alpha Cleaners.
+  // Mensaje de recontacto v2 (formato corto elegido por Felipe, 22-10-2026): abre con una pregunta, se presenta,
+  // ofrece el Lavado Full con descuento y cierra con una pregunta. Sin mención al auto (ni marca ni modelo).
+  const recontacto = `Hola {{nombre}}, ¿cómo has estado? 🚗 Te escribe el equipo de Alpha Cleaners.
 
-Hace {{hace}} lo lavamos y te queremos dar *${pct}% de descuento en tu próximo Lavado Full* (lunes a viernes, hasta el ${PROMO_VENCE}).
+Hace {{hace}} nos visitaste y te queremos dar *${pct}% de descuento en tu próximo Lavado Full* (lunes a viernes, hasta el ${PROMO_VENCE}).
 
 ¿Qué día te acomoda?
 
