@@ -6,7 +6,7 @@ import {
 import { supabase } from '../lib/supabase'
 import {
   LOCAL_FONTOVA, TAMANOS, MEDIOS, fmt, hoyLocal, horaLocal, normalizePatente, nombreServicio,
-  precioServicio, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente,
+  precioServicio, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente, tipoUsoMembresia,
 } from '../lib/caja'
 import RegistroGastos, { ACCESS_TOKEN as GASTOS_TOKEN } from './RegistroGastos'
 
@@ -209,6 +209,67 @@ function TrabajosHoy({ trabajos, pagos, onCambio }) {
   )
 }
 
+// ---------- Uso de la membresía Gold ----------
+const ddmm = (f) => f.split('-').reverse().slice(0, 2).join('-')
+const MES = () => new Date().toLocaleDateString('es-CL', { month: 'long' })
+
+function PanelMembresia({ membresia, servicios, items, onAgregar, onQuitar }) {
+  const servInterior = servicios.find(s => s.es_membresia && tipoUsoMembresia(s.nombre) === 'interior')
+  const servExterior = servicios.find(s => s.es_membresia && tipoUsoMembresia(s.nombre) === 'exterior')
+  const enFormulario = (tipo) => items.filter(i => i.es_membresia && tipoUsoMembresia(i.nombre_base || i.nombre) === tipo)
+  const usadosInt = membresia.usos.filter(u => u.tipo === 'interior')
+  const nuevosInt = enFormulario('interior')
+  const nuevosExt = enFormulario('exterior')
+  const quedan = Math.max(0, membresia.cupoInterior - usadosInt.length - nuevosInt.length)
+
+  return (
+    <div className="mt-3 border border-amber-500/30 bg-amber-500/5 rounded-xl p-3 space-y-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+        <Crown size={15} /> Membresía Gold · uso de {MES()}
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-400 mb-1.5">
+          Lavados con interior: {usadosInt.length} de {membresia.cupoInterior} usados
+          {quedan > 0 ? ` · le ${quedan === 1 ? 'queda 1' : `quedan ${quedan}`}` : ''}
+        </p>
+        <div className="space-y-1.5">
+          {Array.from({ length: Math.max(membresia.cupoInterior, usadosInt.length + nuevosInt.length) }).map((_, i) => {
+            if (i < usadosInt.length) {
+              return (
+                <label key={i} className="flex items-center gap-2 text-sm text-gray-500">
+                  <input type="checkbox" checked disabled className="w-4 h-4" /> Lavado con interior {i + 1} · usado el {ddmm(usadosInt[i].fecha)}
+                </label>
+              )
+            }
+            const nuevo = nuevosInt[i - usadosInt.length]
+            const extra = i >= membresia.cupoInterior
+            return (
+              <label key={i} className={`flex items-center gap-2 text-sm ${nuevo ? 'text-amber-200' : 'text-gray-200'}`}>
+                <input type="checkbox" className="w-4 h-4" checked={Boolean(nuevo)}
+                  onChange={() => nuevo ? onQuitar(nuevo.key) : servInterior && onAgregar(servInterior)} />
+                Lavado con interior {i + 1}{nuevo ? ' · se usa ahora' : ' · disponible'}{extra ? ' (sobre el cupo)' : ''}
+              </label>
+            )
+          })}
+        </div>
+        {usadosInt.length >= membresia.cupoInterior && nuevosInt.length === 0 && (
+          <p className="text-xs text-amber-400 mt-1.5">Ya usó sus {membresia.cupoInterior} lavados con interior de este mes. Si quiere otro, se cobra como servicio normal.</p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-gray-400">
+          Lavados exteriores: ilimitados · {membresia.exterioresUsados} este mes{nuevosExt.length ? ` (+${nuevosExt.length} ahora)` : ''}
+        </p>
+        {nuevosExt.length
+          ? <button type="button" onClick={() => onQuitar(nuevosExt[nuevosExt.length - 1].key)} className="text-xs text-gray-400 hover:text-red-400">Quitar lavado exterior</button>
+          : <button type="button" onClick={() => servExterior && onAgregar(servExterior)} className={chip(false)}>+ Usar lavado exterior</button>}
+      </div>
+    </div>
+  )
+}
+
 // ---------- Nuevo trabajo ----------
 const formVacio = () => ({ patente: '', cliente: '', telefono: '', marca: '', modelo: '', tamano: '', notas: '' })
 
@@ -228,12 +289,22 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
   const patenteActual = useRef('')
   const formRef = useRef(form)
   formRef.current = form
+  const serviciosRef = useRef(servicios)
+  serviciosRef.current = servicios
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const vigentes = descuentos.filter(d => descuentoVigente(d))
   const descuento = vigentes.find(d => String(d.id) === String(descuentoId)) || null
   const calc = calcularTrabajo(items, descuento)
-  const rapidos = servicios.filter(s => s.orden <= 6)
+  const rapidos = servicios.filter(s => s.orden <= 6 && !s.es_membresia)
+  const etiquetaPrecio = (s) => {
+    if (!form.tamano) return 'elige tamaño'
+    const p = precioServicio(s, form.tamano)
+    return p === null ? 'precio a ingresar' : fmt(p)
+  }
+  const tamanoSugerido = info?.tamanoFuente && form.tamano && autollenado.current.tamano === form.tamano
+    ? { caja: 'el registrado la última vez', historial: 'según lo que pagó antes', modelo: 'según su modelo' }[info.tamanoFuente]
+    : null
   const filtrados = filtro.trim()
     ? servicios.filter(s => nombreServicio(s).toLowerCase().includes(filtro.trim().toLowerCase())).slice(0, 8)
     : []
@@ -242,7 +313,7 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
     ultimaBuscada.current = norm
     setBuscando(true)
     let r = null
-    try { r = await buscarPatente(norm) } catch { r = null }
+    try { r = await buscarPatente(norm, serviciosRef.current) } catch { r = null }
     if (patenteActual.current !== norm) { setBuscando(false); return }   // la patente cambió mientras buscaba
     setInfo(r)
     // Reemplaza lo que había llenado una búsqueda anterior; respeta lo que escribió el cajero.
@@ -370,6 +441,10 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
               {info.socio && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300"><Crown size={11} /> Socio con membresía</span>}
             </div>
           )}
+          {info?.membresia && (
+            <PanelMembresia membresia={info.membresia} servicios={servicios} items={items}
+              onAgregar={agregar} onQuitar={(key) => setItems(prev => prev.filter(x => x.key !== key))} />
+          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><label className={labelCls}>Cliente</label><input value={form.cliente} onChange={e => set('cliente', e.target.value)} className={inputCls} /></div>
@@ -378,7 +453,7 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
           <div><label className={labelCls}>Modelo</label><input value={form.modelo} onChange={e => set('modelo', e.target.value)} className={inputCls} /></div>
         </div>
         <div>
-          <label className={labelCls}>Tamaño *</label>
+          <label className={labelCls}>Tamaño *{tamanoSugerido && <span className="text-blue-300"> · sugerido {tamanoSugerido} (puedes cambiarlo)</span>}</label>
           <div className="grid grid-cols-5 gap-1.5">
             {TAMANOS.map(t => <button key={t.key} type="button" onClick={() => set('tamano', t.key)} className={`${chip(form.tamano === t.key)} px-1`}>{t.label}</button>)}
           </div>
@@ -389,7 +464,11 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
         <label className={labelCls}>Servicios *</label>
         <div className="flex flex-wrap gap-2">
-          {rapidos.map(s => <button key={s.id} type="button" onClick={() => agregar(s)} className={chip(false)}>+ {nombreServicio(s)}</button>)}
+          {rapidos.map(s => (
+            <button key={s.id} type="button" onClick={() => agregar(s)} className={`${chip(false)} text-left`}>
+              + {nombreServicio(s)} <span className="text-xs text-gray-400 font-normal">· {etiquetaPrecio(s)}</span>
+            </button>
+          ))}
         </div>
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
