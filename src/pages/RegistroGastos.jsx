@@ -4,7 +4,7 @@ import { Plus, CheckCircle2, AlertTriangle, Droplets } from 'lucide-react'
 
 // Página para el encargado: solo permite registrar gastos. No muestra ingresos ni
 // ninguna otra cifra del negocio. Se entra con /registro-gastos/<ACCESS_TOKEN>.
-const ACCESS_TOKEN = '69zk4m1sn36fdk'
+export const ACCESS_TOKEN = '69zk4m1sn36fdk'
 
 // El encargado solo registra gastos de Fontova (local 1, "Huechuraba (matriz)" en la base).
 const LOCAL_ID = 1
@@ -32,7 +32,8 @@ function leerRecientes() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
 }
 
-export default function RegistroGastos({ token }) {
+// `embedded`: se muestra dentro de la caja del local (sin encabezado propio).
+export default function RegistroGastos({ token, embedded = false }) {
   const [categorias, setCategorias] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -95,9 +96,9 @@ export default function RegistroGastos({ token }) {
   const labelCls = 'block text-sm text-gray-400 mb-1.5'
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <div className="max-w-md mx-auto p-4 pb-10 space-y-5">
-        <div className="flex items-center gap-3 pt-2">
+    <div className={embedded ? '' : 'min-h-screen bg-gray-950 text-gray-100'}>
+      <div className={embedded ? 'space-y-5' : 'max-w-md mx-auto p-4 pb-10 space-y-5'}>
+        {!embedded && <div className="flex items-center gap-3 pt-2">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shrink-0">
             <Droplets size={20} className="text-white" />
           </div>
@@ -105,7 +106,7 @@ export default function RegistroGastos({ token }) {
             <h1 className="font-bold text-white">Alpha Cleaners</h1>
             <p className="text-sm text-gray-400">Registro de gastos · {LOCAL_NOMBRE}</p>
           </div>
-        </div>
+        </div>}
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
           <div>

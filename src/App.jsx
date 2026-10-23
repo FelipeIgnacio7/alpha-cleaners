@@ -12,6 +12,8 @@ import Clima from './pages/Clima'
 import Reactivacion from './pages/Reactivacion'
 import Personal from './pages/Personal'
 import RegistroGastos from './pages/RegistroGastos'
+import CajaLocal from './pages/CajaLocal'
+import CajaAdmin from './pages/CajaAdmin'
 import AccessGate from './components/AccessGate'
 
 function Shell() {
@@ -21,6 +23,11 @@ function Shell() {
   // Página aislada para el encargado: sin menú, sin dashboard, solo el formulario de gastos.
   if (pathname.startsWith('/registro-gastos')) {
     return <RegistroGastos token={pathname.split('/')[2]} />
+  }
+
+  // Caja del local para los trabajadores: sin menú ni datos del negocio, solo operar el día.
+  if (pathname.startsWith('/local/')) {
+    return <CajaLocal token={pathname.split('/')[2]} />
   }
 
   return (
@@ -54,6 +61,7 @@ function Shell() {
             <Route path="/clima" element={<Clima />} />
             <Route path="/reactivacion" element={<Reactivacion />} />
             <Route path="/personal" element={<Personal />} />
+            <Route path="/caja" element={<CajaAdmin />} />
           </Routes>
         </main>
       </div>
