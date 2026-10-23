@@ -30,13 +30,11 @@ export const horaLocal = (d = new Date()) => `${pad(d.getHours())}:${pad(d.getMi
 
 export const normalizePatente = (p) => (p || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 
-// En las tablas antiguas la patente a veces está guardada con espacios ("VT FW 29").
-export function variantesPatente(p) {
-  const n = normalizePatente(p)
-  const out = new Set([n])
-  if (n.length === 6) out.add(`${n.slice(0, 2)} ${n.slice(2, 4)} ${n.slice(4)}`)
-  return [...out]
-}
+// En las tablas antiguas la misma patente aparece en muchos formatos ("TB FG 96", "tbfg96", "TB.FG.96",
+// "TBFG 96"...). Este patrón ilike acepta cualquier separador y mayúsculas/minúsculas entre los caracteres;
+// después se confirma con normalizePatente para descartar coincidencias falsas.
+export const patronPatente = (p) => normalizePatente(p).split('').join('%')
+const mismaPatente = (norm) => (r) => normalizePatente(r.patente) === norm
 
 export const nombreServicio = (s) => (s.detalle ? `${s.nombre} (${s.detalle})` : s.nombre)
 
@@ -90,23 +88,24 @@ export function resumenDia(trabajos, pagos, gastosEfectivo = 0) {
 export async function buscarPatente(patente) {
   const norm = normalizePatente(patente)
   if (norm.length < 5) return null
-  const vars = variantesPatente(norm)
+  const patron = patronPatente(norm)
   const hace90 = hoyLocal(new Date(Date.now() - 90 * 86400000))
 
   const [propios, ventas, trabajos, telefonos] = await Promise.all([
     supabase.from('caja_trabajos').select('cliente, telefono, marca, modelo, tamano, fecha, items')
       .eq('patente', norm).eq('anulado', false).order('created_at', { ascending: false }).limit(5),
-    supabase.from('transacciones_lavado').select('fecha, marca, modelo, tipo_servicio, cliente:webhook_raw->>cliente')
-      .in('patente', vars).order('fecha', { ascending: false }).limit(20),
-    supabase.from('trabajos_aquapp').select('fecha, cliente, marca, modelo, es_membresia')
-      .in('patente', vars).order('fecha', { ascending: false }).limit(20),
-    supabase.from('patente_telefono').select('telefono, nombre_contacto, nombre_venta').in('patente', vars).limit(1),
+    supabase.from('transacciones_lavado').select('patente, fecha, marca, modelo, tipo_servicio, cliente:webhook_raw->>cliente')
+      .ilike('patente', patron).order('fecha', { ascending: false }).limit(50),
+    supabase.from('trabajos_aquapp').select('patente, fecha, cliente, marca, modelo, es_membresia')
+      .ilike('patente', patron).order('fecha', { ascending: false }).limit(50),
+    supabase.from('patente_telefono').select('patente, telefono, nombre_contacto, nombre_venta').ilike('patente', patron).limit(10),
   ])
 
+  const es = mismaPatente(norm)
   const p = propios.data?.[0]
-  const v = ventas.data ?? []
-  const t = trabajos.data ?? []
-  const tel = telefonos.data?.[0]
+  const v = (ventas.data ?? []).filter(es)
+  const t = (trabajos.data ?? []).filter(es)
+  const tel = (telefonos.data ?? []).find(es)
   const primero = (arr, campo) => arr.find(r => (r[campo] || '').trim())?.[campo]?.trim() || null
 
   const socio = t.some(r => r.es_membresia && r.fecha >= hace90)

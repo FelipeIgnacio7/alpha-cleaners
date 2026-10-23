@@ -224,6 +224,10 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
   const ultimaBuscada = useRef('')
+  const autollenado = useRef({})   // campos que llenó la búsqueda (se reemplazan si cambia la patente)
+  const patenteActual = useRef('')
+  const formRef = useRef(form)
+  formRef.current = form
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const vigentes = descuentos.filter(d => descuentoVigente(d))
@@ -234,31 +238,36 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
     ? servicios.filter(s => nombreServicio(s).toLowerCase().includes(filtro.trim().toLowerCase())).slice(0, 8)
     : []
 
-  // Buscar la patente apenas tiene 6 caracteres
+  const buscar = useCallback(async (norm) => {
+    ultimaBuscada.current = norm
+    setBuscando(true)
+    let r = null
+    try { r = await buscarPatente(norm) } catch { r = null }
+    if (patenteActual.current !== norm) { setBuscando(false); return }   // la patente cambió mientras buscaba
+    setInfo(r)
+    // Reemplaza lo que había llenado una búsqueda anterior; respeta lo que escribió el cajero.
+    const f = formRef.current
+    const cambios = {}
+    const llenados = {}
+    for (const k of ['cliente', 'telefono', 'marca', 'modelo', 'tamano']) {
+      const puedo = !f[k] || autollenado.current[k] === f[k]
+      const nuevo = r?.encontrado ? (r[k] || '') : ''
+      if (puedo) { cambios[k] = nuevo; if (nuevo) llenados[k] = nuevo }
+    }
+    autollenado.current = llenados
+    setForm(prev => ({ ...prev, ...cambios }))
+    setBuscando(false)
+  }, [])
+
+  // Buscar la patente apenas tiene 6 caracteres (las de moto, con el botón "Buscar")
   useEffect(() => {
     const norm = normalizePatente(form.patente)
+    patenteActual.current = norm
+    if (norm !== ultimaBuscada.current && info) setInfo(null)
     if (norm.length < 6 || norm === ultimaBuscada.current) return
-    const id = setTimeout(async () => {
-      ultimaBuscada.current = norm
-      setBuscando(true)
-      try {
-        const r = await buscarPatente(norm)
-        setInfo(r)
-        if (r?.encontrado) {
-          setForm(f => ({
-            ...f,
-            cliente: f.cliente || r.cliente,
-            telefono: f.telefono || r.telefono,
-            marca: f.marca || r.marca,
-            modelo: f.modelo || r.modelo,
-            tamano: f.tamano || r.tamano,
-          }))
-        }
-      } catch { setInfo(null) }
-      setBuscando(false)
-    }, 400)
+    const id = setTimeout(() => buscar(norm), 400)
     return () => clearTimeout(id)
-  }, [form.patente])
+  }, [form.patente]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Al cambiar el tamaño, actualizar los precios que no se editaron a mano
   useEffect(() => {
@@ -331,6 +340,7 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
     setSaving(false)
     setForm(formVacio()); setItems([]); setDescuentoId(''); setCobrarAhora(true); setInfo(null)
     ultimaBuscada.current = ''
+    autollenado.current = {}
     onGuardado(`Trabajo de ${patente} guardado${cobrarAhora && calc.total > 0 ? ' y cobrado' : ''}.`, true)
   }
 
@@ -345,7 +355,12 @@ function NuevoTrabajo({ servicios, descuentos, onGuardado }) {
             <input value={form.patente} onChange={e => set('patente', e.target.value.toUpperCase())} placeholder="ABCD12"
               autoCapitalize="characters" autoComplete="off"
               className={`${inputCls} pl-9 font-mono tracking-wider uppercase`} />
-            {buscando && <RefreshCw size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 animate-spin" />}
+            {buscando
+              ? <RefreshCw size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 animate-spin" />
+              : normalizePatente(form.patente).length >= 5 && !info && (
+                <button type="button" onClick={() => buscar(normalizePatente(form.patente))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-400 px-2 py-1">Buscar</button>
+              )}
           </div>
           {info && (
             <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
