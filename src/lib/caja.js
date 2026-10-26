@@ -64,27 +64,34 @@ export function calcularTrabajo(items, descuento) {
 export const cobradoDe = (trabajo, pagos) =>
   pagos.filter(p => p.trabajo_id === trabajo.id).reduce((a, p) => a + Number(p.monto), 0)
 
-// Resumen del día para la caja y el cierre.
+// Resumen del día para la caja y el cierre. `recargo` (ej. 10% con crédito) es plata que entra a la
+// billetera pero no abona al trabajo; se suma a los saldos por medio de pago.
+export const RECARGO_CREDITO = 0.10
+
 export function resumenDia(trabajos, pagos, gastosEfectivo = 0) {
   const validos = trabajos.filter(t => !t.anulado)
   const vendido = validos.reduce((a, t) => a + Number(t.total), 0)
   const porMedio = Object.fromEntries(MEDIOS.map(m => [m.key, 0]))
-  pagos.forEach(p => { porMedio[p.medio] = (porMedio[p.medio] || 0) + Number(p.monto) })
+  pagos.forEach(p => { porMedio[p.medio] = (porMedio[p.medio] || 0) + Number(p.monto) + Number(p.recargo || 0) })
   const cobrado = Object.values(porMedio).reduce((a, b) => a + b, 0)
-  const pendiente = validos.reduce((a, t) => a + Math.max(0, Number(t.total) - cobradoDe(t, pagos)), 0)
+  const recargos = pagos.reduce((a, p) => a + Number(p.recargo || 0), 0)
+  const pendientes = validos.filter(t => Number(t.total) - cobradoDe(t, pagos) > 0)
+  const pendiente = pendientes.reduce((a, t) => a + Number(t.total) - cobradoDe(t, pagos), 0)
   return {
     trabajos: validos.length,
     anulados: trabajos.length - validos.length,
     vendido,
     cobrado,
+    recargos,
+    cobros: pagos.length,
     porMedio,
     pendiente,
+    conDeuda: pendientes.length,
     gastosEfectivo,
     efectivoEsperado: porMedio.efectivo - gastosEfectivo,
   }
 }
 
-// Busca lo que sabemos de una patente: primero en la caja propia, después en el historial de Aquapp.
 // ---------- Membresía Gold ----------
 // En Aquapp el uso de la membresía se registra como "Membresía Full" (lavado con interior) o
 // "Membresía simple" (solo exterior). La Gold incluye exteriores ilimitados y 2 lavados con interior al mes.
