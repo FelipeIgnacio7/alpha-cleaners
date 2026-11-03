@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Trash2, RefreshCw, TrendingUp, TrendingDown, Wallet, CreditCard, Banknote, Landmark } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, TrendingUp, TrendingDown, Wallet, CreditCard, Banknote, Landmark, Pencil, X } from 'lucide-react'
 
 const fmt = (n) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n ?? 0)
@@ -87,23 +87,26 @@ export default function Personal() {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState(null)
+  const [editando, setEditando] = useState(null)   // gasto en edición (null = formulario de gasto nuevo)
 
   useEffect(() => { load() }, [mes])
 
   async function load() {
     setLoading(true)
     const [first, last] = monthRange(mes)
-    const [personales, lavado, membresia, subarriendo, gastosLoc] = await Promise.all([
+    const [personales, lavado, membresia, subarriendo, gastosLoc, zafepay] = await Promise.all([
       fetchAll(() => supabase.from('gastos_personales').select('*').gte('fecha', first).lte('fecha', last).order('fecha', { ascending: false }).order('id', { ascending: false })),
       fetchAll(() => supabase.from('transacciones_lavado').select('id, monto').gte('fecha', first).lte('fecha', last).order('id')),
       fetchAll(() => supabase.from('pagos_membresia').select('id, monto').gte('fecha_pago', first).lte('fecha_pago', last).order('id')),
       fetchAll(() => supabase.from('pagos_subarriendo').select('id, monto_pagado').gte('fecha_pago', first).lte('fecha_pago', last).order('id')),
       fetchAll(() => supabase.from('gastos').select('id, monto').gte('fecha', first).lte('fecha', last).order('id')),
+      // Cuotas de membresía cobradas en Zafepay (mismo criterio que el Dashboard)
+      fetchAll(() => supabase.from('membresias_zafepay').select('id, valor').eq('estado', 'Pagado').gte('fecha_pago', first).lte('fecha_pago', last).order('id')),
     ])
     setGastos(personales)
     setIngreso({
       ventas: sum(lavado),
-      membresias: sum(membresia),
+      membresias: sum(membresia) + sum(zafepay, 'valor'),
       subarriendos: sum(subarriendo, 'monto_pagado'),
       gastosLocales: sum(gastosLoc),
     })
@@ -115,24 +118,45 @@ export default function Personal() {
     if (!form.monto || !form.categoria || !form.fecha) return
     setSaving(true)
     setError(null)
-    const { error: err } = await supabase.from('gastos_personales').insert({
+    const fila = {
       persona: form.persona,
       categoria: form.categoria,
       monto: Number(form.monto),
       medio_pago: form.medio_pago,
       detalle: form.detalle || null,
       fecha: form.fecha,
-    })
+    }
+    // Edición directa del mismo gasto, o gasto nuevo
+    const { error: err } = editando
+      ? await supabase.from('gastos_personales').update(fila).eq('id', editando.id)
+      : await supabase.from('gastos_personales').insert(fila)
     setSaving(false)
     if (err) { setError(err.message); return }
+    const eraEdicion = Boolean(editando)
+    setEditando(null)
     setForm(f => ({ ...DEFAULT_FORM, persona: f.persona, medio_pago: f.medio_pago }))
-    setSuccess(true)
+    setSuccess(eraEdicion ? 'Cambios guardados' : 'Gasto registrado correctamente')
     setTimeout(() => setSuccess(false), 2500)
     await load()
   }
 
+  function editar(g) {
+    setEditando(g)
+    setError(null)
+    setForm({ persona: g.persona, categoria: g.categoria, monto: String(g.monto), medio_pago: g.medio_pago, detalle: g.detalle ?? '', fecha: g.fecha })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function cancelarEdicion() {
+    setEditando(null)
+    setError(null)
+    setForm(f => ({ ...DEFAULT_FORM, persona: f.persona, medio_pago: f.medio_pago }))
+  }
+
   async function eliminar(id) {
+    if (!confirm('¿Eliminar este gasto?')) return
     await supabase.from('gastos_personales').delete().eq('id', id)
+    if (editando?.id === id) cancelarEdicion()
     await load()
   }
 
@@ -193,7 +217,14 @@ export default function Personal() {
         {/* Formulario + desgloses */}
         <div className="lg:col-span-1 space-y-5">
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-gray-200 mb-4">Nuevo Gasto Personal</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-200">{editando ? 'Editando gasto personal' : 'Nuevo Gasto Personal'}</h3>
+              {editando && (
+                <button type="button" onClick={cancelarEdicion} className="flex items-center gap-1 text-xs text-gray-400 hover:text-white">
+                  <X size={13} /> Cancelar
+                </button>
+              )}
+            </div>
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">¿Quién gastó? *</label>
@@ -280,9 +311,9 @@ export default function Personal() {
                 className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors mt-2"
               >
                 <Plus size={14} />
-                {saving ? 'Guardando...' : 'Guardar Gasto'}
+                {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Guardar Gasto'}
               </button>
-              {success && <p className="text-center text-xs text-green-400 font-medium">Gasto registrado correctamente</p>}
+              {success && <p className="text-center text-xs text-green-400 font-medium">{success}</p>}
               {error && <p className="text-center text-xs text-red-400">{error}</p>}
             </form>
           </div>
@@ -353,7 +384,7 @@ export default function Personal() {
                   ) : visibles.map(g => {
                     const medio = medioInfo(g.medio_pago)
                     return (
-                      <tr key={g.id} className="hover:bg-gray-800/50 transition-colors">
+                      <tr key={g.id} className={`hover:bg-gray-800/50 transition-colors ${editando?.id === g.id ? 'bg-blue-500/10' : ''}`}>
                         <td className="px-5 py-3 text-gray-300 text-xs font-mono whitespace-nowrap">{g.fecha}</td>
                         <td className="px-5 py-3 text-gray-200 text-xs font-medium">{g.persona}</td>
                         <td className="px-5 py-3 text-gray-300 text-xs">
@@ -362,8 +393,11 @@ export default function Personal() {
                         </td>
                         <td className="px-5 py-3 text-xs whitespace-nowrap" style={{ color: medio?.color }}>{medio?.short ?? g.medio_pago}</td>
                         <td className="px-5 py-3 text-right font-semibold text-red-400 whitespace-nowrap">{fmt(g.monto)}</td>
-                        <td className="px-5 py-3">
-                          <button onClick={() => eliminar(g.id)} className="text-gray-600 hover:text-red-400 transition-colors">
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          <button onClick={() => editar(g)} className="text-gray-500 hover:text-blue-400 transition-colors mr-3" title="Editar">
+                            <Pencil size={13} />
+                          </button>
+                          <button onClick={() => eliminar(g.id)} className="text-gray-600 hover:text-red-400 transition-colors" title="Eliminar">
                             <Trash2 size={13} />
                           </button>
                         </td>
