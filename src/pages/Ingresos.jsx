@@ -547,6 +547,105 @@ function ModalImportTrabajos({ onClose, onDone }) {
   )
 }
 
+// Ingresos de membresías cobradas en Zafepay (cuotas de suscripción). Se cargan con scripts/cargar_zafepay.py.
+function ResumenMembresias() {
+  const [filas, setFilas] = useState(null)   // null = cargando; 'sin_tabla' = aún no existe la tabla
+  const [mes, setMes] = useState(new Date().toISOString().slice(0, 7))
+
+  useEffect(() => {
+    async function load() {
+      const todas = []
+      for (let from = 0; ; from += 1000) {
+        const { data: d, error } = await supabase.from('membresias_zafepay').select('plan, valor, fecha_vencimiento, fecha_pago, estado').order('id').range(from, from + 999)
+        if (error) { setFilas('sin_tabla'); return }
+        todas.push(...(d ?? []))
+        if (!d || d.length < 1000) break
+      }
+      setFilas(todas)
+    }
+    load()
+  }, [])
+
+  if (filas === null) return null
+  if (filas === 'sin_tabla' || filas.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-gray-200">Membresías (Zafepay)</h3>
+        <p className="text-xs text-gray-500 mt-1">Aún no hay cobros de membresías cargados.</p>
+      </div>
+    )
+  }
+
+  const pagadas = filas.filter(f => f.estado === 'Pagado' && f.fecha_pago)
+  const delMes = pagadas.filter(f => f.fecha_pago.startsWith(mes))
+  const total = delMes.reduce((a, f) => a + Number(f.valor), 0)
+  const porPlan = Object.entries(delMes.reduce((acc, f) => {
+    acc[f.plan] = acc[f.plan] || { n: 0, total: 0 }
+    acc[f.plan].n++; acc[f.plan].total += Number(f.valor)
+    return acc
+  }, {})).sort((a, b) => b[1].total - a[1].total)
+  // Cuotas que vencen en el mes y siguen sin pagarse
+  const vencenMes = filas.filter(f => f.fecha_vencimiento?.startsWith(mes))
+  const pendientes = vencenMes.filter(f => f.estado === 'Pendiente')
+  const enDeuda = filas.filter(f => f.estado === 'En deuda')
+
+  // Últimos 12 meses
+  const meses = []
+  const base = new Date()
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth() - i, 1)
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const fs = pagadas.filter(f => f.fecha_pago.startsWith(k))
+    meses.push({ k, n: fs.length, total: fs.reduce((a, f) => a + Number(f.valor), 0) })
+  }
+  const maxMes = Math.max(...meses.map(m => m.total), 1)
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-200">Membresías (Zafepay)</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Cuotas de suscripción cobradas por Zafepay, por fecha de pago. Se suman a los ingresos del Dashboard.</p>
+        </div>
+        <input type="month" value={mes} onChange={e => e.target.value && setMes(e.target.value)} className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Cobrado en el mes</p><p className="text-lg font-bold text-green-400">{fmt(total)}</p><p className="text-xs text-gray-500">{delMes.length} cuotas pagadas</p></div>
+        <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Ticket promedio</p><p className="text-lg font-bold text-gray-100">{fmt(delMes.length ? total / delMes.length : 0)}</p><p className="text-xs text-gray-500">por cuota</p></div>
+        <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">Vencen y no pagan</p><p className="text-lg font-bold text-amber-400">{fmt(pendientes.reduce((a, f) => a + Number(f.valor), 0))}</p><p className="text-xs text-gray-500">{pendientes.length} cuotas pendientes del mes</p></div>
+        <div className="bg-gray-800/60 rounded-lg p-3"><p className="text-xs text-gray-400">En deuda (total)</p><p className="text-lg font-bold text-red-400">{fmt(enDeuda.reduce((a, f) => a + Number(f.valor), 0))}</p><p className="text-xs text-gray-500">{enDeuda.length} cuotas</p></div>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Por plan</p>
+          <div className="space-y-1.5">
+            {porPlan.length === 0 && <p className="text-sm text-gray-500">Sin cobros este mes.</p>}
+            {porPlan.map(([plan, v]) => (
+              <div key={plan} className="flex items-center justify-between text-sm">
+                <span className="text-gray-300">{plan} <span className="text-gray-500">· {v.n}</span></span>
+                <span className="text-gray-100 font-medium">{fmt(v.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Últimos 12 meses</p>
+          <div className="space-y-1">
+            {meses.map(m => (
+              <button key={m.k} onClick={() => setMes(m.k)} className="w-full flex items-center gap-2 text-xs group">
+                <span className={`w-14 text-left ${m.k === mes ? 'text-blue-300 font-semibold' : 'text-gray-500'}`}>{m.k}</span>
+                <span className="flex-1 bg-gray-800 rounded-full h-1.5"><span className={`block h-1.5 rounded-full ${m.k === mes ? 'bg-blue-400' : 'bg-blue-600/60 group-hover:bg-blue-500'}`} style={{ width: `${(m.total / maxMes) * 100}%` }} /></span>
+                <span className="w-24 text-right text-gray-300">{fmt(m.total)}</span>
+                <span className="w-8 text-right text-gray-600">{m.n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ResumenTrabajos({ reloadKey }) {
   const [mes, setMes] = useState('')
   const [data, setData] = useState(null)
@@ -733,6 +832,8 @@ export default function Ingresos() {
       </div>
 
       <ResumenTrabajos reloadKey={trabKey} />
+
+      <ResumenMembresias />
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 bg-gray-900 border border-gray-800 rounded-xl p-4">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { membresiasDelLocal } from '../lib/membresias'
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement,
   PointElement, ArcElement, Title, Tooltip, Legend, Filler,
@@ -44,7 +45,7 @@ function DeltaBadge({ pct }) {
 }
 
 export default function Dashboard() {
-  const [kpis, setKpis] = useState({ ingresos: 0, ventas: 0, subarriendos: 0, gastosSinLocal: 0, gastos: 0, utilidad: 0, numServicios: 0, ticketPromedio: 0, mejorDia: null, mejorMonto: 0, deltaIngresos: null, deltaServicios: null })
+  const [kpis, setKpis] = useState({ ingresos: 0, ventas: 0, subarriendos: 0, gastosSinLocal: 0, gastos: 0, utilidad: 0, numServicios: 0, ticketPromedio: 0, mejorDia: null, mejorMonto: 0, deltaIngresos: null, deltaServicios: null, membresias: 0 })
   const [dailyChart, setDailyChart] = useState(null)
   const [monthlyChart, setMonthlyChart] = useState(null)
   const [weekdayChart, setWeekdayChart] = useState(null)
@@ -86,14 +87,16 @@ export default function Dashboard() {
     const base = (q) => localId ? q.eq('local_id', Number(localId)) : q
 
     // Mes actual
-    const [lavado, membresia, gastos, subarriendo] = await Promise.all([
+    const [lavado, membresia, gastos, subarriendo, zafepay] = await Promise.all([
       base(supabase.from('transacciones_lavado').select('monto, fecha, tipo_servicio, local_id, marca, locales(nombre)')).gte('fecha', firstDay).lte('fecha', lastDay),
       base(supabase.from('pagos_membresia').select('monto, fecha_pago, plan, local_id, locales(nombre)')).gte('fecha_pago', firstDay).lte('fecha_pago', lastDay),
       base(supabase.from('gastos').select('monto, fecha, local_id, categorias_gasto(nombre, color), locales(nombre)')).gte('fecha', firstDay).lte('fecha', lastDay),
       base(supabase.from('pagos_subarriendo').select('monto_pagado, fecha_pago, local_id')).gte('fecha_pago', firstDay).lte('fecha_pago', lastDay),
+      supabase.from('membresias_zafepay').select('valor, fecha_pago, plan').eq('estado', 'Pagado').gte('fecha_pago', firstDay).lte('fecha_pago', lastDay),
     ])
 
     const lavData = lavado.data ?? []
+    const zafData = membresiasDelLocal(zafepay.data ?? [], localId)
     const memData = membresia.data ?? []
     const gasData = gastos.data ?? []
 
@@ -103,7 +106,8 @@ export default function Dashboard() {
     const subData = subarriendo.data ?? []
     const totalVentas = [...lavData, ...memData].reduce((a, t) => a + Number(t.monto), 0)
     const totalSubarriendos = subData.reduce((a, t) => a + Number(t.monto_pagado), 0)
-    const totalIngresos = totalVentas + totalSubarriendos
+    const totalMembresias = zafData.reduce((a, t) => a + Number(t.valor), 0)   // cuotas de membresía cobradas en Zafepay
+    const totalIngresos = totalVentas + totalMembresias + totalSubarriendos
     const totalGastos = gasData.reduce((a, g) => a + Number(g.monto), 0)
     const gastosSinLocal = gasData.filter(g => !g.local_id).reduce((a, g) => a + Number(g.monto), 0)
     const numServicios = lavData.length + memData.length
@@ -113,6 +117,7 @@ export default function Dashboard() {
     const byDay = {}
     lavData.forEach(t => { byDay[t.fecha] = (byDay[t.fecha] ?? 0) + Number(t.monto) })
     memData.forEach(t => { byDay[t.fecha_pago] = (byDay[t.fecha_pago] ?? 0) + Number(t.monto) })
+    zafData.forEach(t => { byDay[t.fecha_pago] = (byDay[t.fecha_pago] ?? 0) + Number(t.valor) })
     const mejorDia = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0]
 
     // Breakdown por tipo de servicio (con ticket promedio)
@@ -159,18 +164,20 @@ export default function Dashboard() {
     // Mes anterior para deltas
     const prevFirst = new Date(year, month - 2, 1).toISOString().split('T')[0]
     const prevLast = new Date(year, month - 1, 0).toISOString().split('T')[0]
-    const [lavPrev, memPrev, subPrev] = await Promise.all([
+    const [lavPrev, memPrev, subPrev, zafPrev] = await Promise.all([
       base(supabase.from('transacciones_lavado').select('monto')).gte('fecha', prevFirst).lte('fecha', prevLast),
       base(supabase.from('pagos_membresia').select('monto')).gte('fecha_pago', prevFirst).lte('fecha_pago', prevLast),
       base(supabase.from('pagos_subarriendo').select('monto_pagado')).gte('fecha_pago', prevFirst).lte('fecha_pago', prevLast),
+      supabase.from('membresias_zafepay').select('valor, plan').eq('estado', 'Pagado').gte('fecha_pago', prevFirst).lte('fecha_pago', prevLast),
     ])
     const prevIngresos = [...(lavPrev.data ?? []), ...(memPrev.data ?? [])].reduce((a, t) => a + Number(t.monto), 0)
       + (subPrev.data ?? []).reduce((a, t) => a + Number(t.monto_pagado), 0)
+      + membresiasDelLocal(zafPrev.data ?? [], localId).reduce((a, t) => a + Number(t.valor), 0)
     const prevServicios = (lavPrev.data?.length ?? 0) + (memPrev.data?.length ?? 0)
     const deltaIngresos = prevIngresos > 0 ? ((totalIngresos - prevIngresos) / prevIngresos) * 100 : null
     const deltaServicios = prevServicios > 0 ? ((numServicios - prevServicios) / prevServicios) * 100 : null
 
-    setKpis({ ingresos: totalIngresos, ventas: totalVentas, subarriendos: totalSubarriendos, gastosSinLocal, gastos: totalGastos, utilidad: totalIngresos - totalGastos, numServicios, ticketPromedio, mejorDia: mejorDia?.[0], mejorMonto: mejorDia?.[1] ?? 0, deltaIngresos, deltaServicios })
+    setKpis({ ingresos: totalIngresos, ventas: totalVentas, subarriendos: totalSubarriendos, gastosSinLocal, gastos: totalGastos, utilidad: totalIngresos - totalGastos, numServicios, ticketPromedio, mejorDia: mejorDia?.[0], mejorMonto: mejorDia?.[1] ?? 0, deltaIngresos, deltaServicios, membresias: totalMembresias })
 
     // Gráfico ventas diarias del mes (línea)
     const daysLabels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1))
@@ -218,17 +225,20 @@ export default function Dashboard() {
       months.push({ label: d.toLocaleString('es-CL', { month: 'short', year: '2-digit' }), year: d.getFullYear(), month: d.getMonth() + 1 })
     }
     const chartStart = months[0].year + '-' + String(months[0].month).padStart(2, '0') + '-01'
-    const [lavAll, memAll, gasAll, subAll] = await Promise.all([
+    const [lavAll, memAll, gasAll, subAll, zafAll] = await Promise.all([
       base(supabase.from('transacciones_lavado').select('monto, fecha')).gte('fecha', chartStart),
       base(supabase.from('pagos_membresia').select('monto, fecha_pago')).gte('fecha_pago', chartStart),
       base(supabase.from('gastos').select('monto, fecha')).gte('fecha', chartStart),
       base(supabase.from('pagos_subarriendo').select('monto_pagado, fecha_pago')).gte('fecha_pago', chartStart),
+      supabase.from('membresias_zafepay').select('valor, fecha_pago, plan').eq('estado', 'Pagado').gte('fecha_pago', chartStart),
     ])
+    const zafMeses = membresiasDelLocal(zafAll.data ?? [], localId)
     const ingByM = months.map(m => {
       const lav = (lavAll.data ?? []).filter(t => { const d = new Date(t.fecha); return d.getFullYear() === m.year && d.getMonth() + 1 === m.month }).reduce((a, b) => a + Number(b.monto), 0)
       const mem = (memAll.data ?? []).filter(t => { const d = new Date(t.fecha_pago); return d.getFullYear() === m.year && d.getMonth() + 1 === m.month }).reduce((a, b) => a + Number(b.monto), 0)
       const sub = (subAll.data ?? []).filter(t => { const d = new Date(t.fecha_pago); return d.getFullYear() === m.year && d.getMonth() + 1 === m.month }).reduce((a, b) => a + Number(b.monto_pagado), 0)
-      return lav + mem + sub
+      const zaf = zafMeses.filter(t => { const d = new Date(t.fecha_pago); return d.getFullYear() === m.year && d.getMonth() + 1 === m.month }).reduce((a, b) => a + Number(b.valor), 0)
+      return lav + mem + sub + zaf
     })
     const gasByM = months.map(m =>
       (gasAll.data ?? []).filter(t => { const d = new Date(t.fecha); return d.getFullYear() === m.year && d.getMonth() + 1 === m.month }).reduce((a, b) => a + Number(b.monto), 0)
@@ -364,7 +374,11 @@ export default function Dashboard() {
           </div>
           <p className="text-xl font-bold text-green-400">{fmt(kpis.ingresos)}</p>
           <div className="mt-1"><DeltaBadge pct={kpis.deltaIngresos} /></div>
-          {kpis.subarriendos > 0 && <p className="text-xs text-gray-500 mt-1">{fmt(kpis.ventas)} ventas + {fmt(kpis.subarriendos)} subarriendos</p>}
+          {(kpis.subarriendos > 0 || kpis.membresias > 0) && (
+            <p className="text-xs text-gray-500 mt-1">
+              {fmt(kpis.ventas)} ventas{kpis.membresias > 0 ? ` + ${fmt(kpis.membresias)} membresías` : ''}{kpis.subarriendos > 0 ? ` + ${fmt(kpis.subarriendos)} subarriendos` : ''}
+            </p>
+          )}
         </div>
 
         <div className="col-span-1 bg-gray-900 border border-gray-800 rounded-xl p-4">

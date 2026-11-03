@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, CheckCircle2, AlertTriangle, Droplets } from 'lucide-react'
+import { dividirEnCuotas, notaCuota } from '../lib/gastos'
 
 // Página para el encargado: solo permite registrar gastos. No muestra ingresos ni
 // ninguna otra cifra del negocio. Se entra con /registro-gastos/<ACCESS_TOKEN>.
@@ -60,18 +61,21 @@ export default function RegistroGastos({ token, embedded = false }) {
     if (!form.monto || !form.categoria_id || !form.fecha) return
     setSaving(true)
     setMsg(null)
-    const { error } = await supabase.from('gastos').insert({
+    // Si es en cuotas, el total se divide en una cuota por mes (cada una queda como un gasto)
+    const cuotas = form.es_cuotas && Number(form.num_cuotas) >= 2
+      ? dividirEnCuotas({ monto: form.monto, cuotas: form.num_cuotas, fecha: form.fecha })
+      : null
+    const comun = {
       local_id: LOCAL_ID,
       categoria_id: Number(form.categoria_id),
-      monto: Number(form.monto),
       proveedor: form.proveedor || null,
-      fecha: form.fecha,
-      notas: form.notas || null,
       metodo_carga: 'encargado',
       metodo_pago: form.metodo_pago || null,
-      es_cuotas: form.es_cuotas,
-      num_cuotas: form.es_cuotas && form.num_cuotas ? Number(form.num_cuotas) : null,
-    })
+    }
+    const filas = cuotas
+      ? cuotas.map(c => ({ ...comun, monto: c.monto, fecha: c.fecha, notas: notaCuota(c.numero, cuotas.length, Math.round(Number(form.monto)), form.notas), es_cuotas: true, num_cuotas: cuotas.length }))
+      : [{ ...comun, monto: Number(form.monto), fecha: form.fecha, notas: form.notas || null, es_cuotas: form.es_cuotas, num_cuotas: null }]
+    const { error } = await supabase.from('gastos').insert(filas)
     setSaving(false)
     if (error) {
       setMsg({ ok: false, text: 'No se pudo guardar. Revisa tu conexión e intenta de nuevo.' })

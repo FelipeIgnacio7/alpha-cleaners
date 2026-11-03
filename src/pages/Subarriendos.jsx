@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { CheckCircle2, Clock, AlertCircle, X, Save, RefreshCw, Plus, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { CheckCircle2, Clock, AlertCircle, X, Save, RefreshCw, Plus, ChevronDown, ChevronUp, Trash2, Pencil } from 'lucide-react'
 
 const fmt = (n) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n ?? 0)
@@ -18,26 +18,43 @@ const MONTOS_ACORDADOS = {
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
-function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
-  const [monto, setMonto] = useState('')
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
-  const [notas, setNotas] = useState('')
+function ModalAbono({ local, mes, anio, montoAcordado, abono, onClose, onSaved }) {
+  const editando = Boolean(abono)
+  const [monto, setMonto] = useState(editando ? String(abono.monto_pagado) : '')
+  const [fecha, setFecha] = useState(editando ? abono.fecha_pago : new Date().toISOString().split('T')[0])
+  const [notas, setNotas] = useState(editando ? (abono.notas ?? '') : '')
+  const [acordado, setAcordado] = useState(String(montoAcordado))
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
   async function save() {
     if (!monto || Number(monto) <= 0) return
     setSaving(true)
-    await supabase.from('pagos_subarriendo').insert({
-      local_id: local.id,
-      monto_acordado: montoAcordado,
-      monto_pagado: Number(monto),
-      fecha_pago: fecha,
-      mes_periodo: mes,
-      anio_periodo: anio,
-      estado: 'pagado',
-      notas: notas || null,
-    })
+    setError(null)
+    let err
+    if (editando) {
+      // Edición directa del abono. Si cambió el acordado del mes, se actualiza en todos los abonos de ese local y período.
+      ;({ error: err } = await supabase.from('pagos_subarriendo').update({
+        monto_pagado: Number(monto), fecha_pago: fecha, notas: notas || null,
+      }).eq('id', abono.id))
+      if (!err && Number(acordado) !== Number(montoAcordado)) {
+        ;({ error: err } = await supabase.from('pagos_subarriendo').update({ monto_acordado: Number(acordado) })
+          .eq('local_id', local.id).eq('mes_periodo', mes).eq('anio_periodo', anio))
+      }
+    } else {
+      ;({ error: err } = await supabase.from('pagos_subarriendo').insert({
+        local_id: local.id,
+        monto_acordado: Number(acordado) || montoAcordado,
+        monto_pagado: Number(monto),
+        fecha_pago: fecha,
+        mes_periodo: mes,
+        anio_periodo: anio,
+        estado: 'pagado',
+        notas: notas || null,
+      }))
+    }
     setSaving(false)
+    if (err) { setError('No se pudo guardar. Revisa la conexión e intenta de nuevo.'); return }
     onSaved()
   }
 
@@ -46,7 +63,7 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h3 className="font-bold text-white">Agregar Abono</h3>
+            <h3 className="font-bold text-white">{editando ? 'Editar Abono' : 'Agregar Abono'}</h3>
             <p className="text-sm text-gray-400">{local?.nombre} · {MESES[mes - 1]} {anio}</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors"><X size={18} /></button>
@@ -63,7 +80,16 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
               className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               autoFocus
             />
-            <p className="text-xs text-gray-500 mt-1">Acordado total: {fmt(montoAcordado)}</p>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Acordado del mes</label>
+            <input
+              type="number"
+              value={acordado}
+              onChange={e => setAcordado(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Solo de {MESES[mes - 1]} {anio}; no cambia los otros meses.</p>
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Fecha del abono</label>
@@ -92,15 +118,16 @@ function ModalAbono({ local, mes, anio, montoAcordado, onClose, onSaved }) {
           </button>
           <button onClick={save} disabled={saving || !monto} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">
             <Save size={14} />
-            {saving ? 'Guardando...' : 'Registrar Abono'}
+            {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar Abono'}
           </button>
         </div>
+        {error && <p className="text-xs text-red-400 mt-3 text-center">{error}</p>}
       </div>
     </div>
   )
 }
 
-function FilaLocal({ local, pagos, mes, anio, onAbonar, onDeleteAbono }) {
+function FilaLocal({ local, pagos, mes, anio, onAbonar, onEditAbono, onDeleteAbono }) {
   const [expanded, setExpanded] = useState(false)
   // Si ya hay pagos registrados para este período, el acordado real queda
   // guardado en esos registros (puede ser distinto al monto vigente hoy,
@@ -165,8 +192,11 @@ function FilaLocal({ local, pagos, mes, anio, onAbonar, onDeleteAbono }) {
           <td className="px-5 py-2" />
           <td className="px-5 py-2 text-xs text-green-400 font-medium">{fmt(p.monto_pagado)}</td>
           <td className="px-5 py-2 text-xs text-gray-500 italic">{p.notas ?? '—'}</td>
-          <td className="px-5 py-2 text-center">
-            <button onClick={() => onDeleteAbono(p.id)} className="text-gray-600 hover:text-red-400 transition-colors">
+          <td className="px-5 py-2 text-center whitespace-nowrap">
+            <button onClick={() => onEditAbono(local, p)} className="text-gray-500 hover:text-blue-400 transition-colors mr-3" title="Editar abono">
+              <Pencil size={12} />
+            </button>
+            <button onClick={() => onDeleteAbono(p.id)} className="text-gray-600 hover:text-red-400 transition-colors" title="Eliminar abono">
               <Trash2 size={12} />
             </button>
           </td>
@@ -198,6 +228,7 @@ export default function Subarriendos() {
   }
 
   async function deleteAbono(id) {
+    if (!confirm('¿Eliminar este abono?')) return
     await supabase.from('pagos_subarriendo').delete().eq('id', id)
     await loadAll()
   }
@@ -266,7 +297,8 @@ export default function Subarriendos() {
                 pagos={pagos.filter(p => p.local_id === local.id)}
                 mes={mes}
                 anio={anio}
-                onAbonar={setModal}
+                onAbonar={(l) => setModal({ local: l })}
+                onEditAbono={(l, p) => setModal({ local: l, abono: p })}
                 onDeleteAbono={deleteAbono}
               />
             ))}
@@ -276,14 +308,16 @@ export default function Subarriendos() {
 
       {modal && (
         <ModalAbono
-          local={modal}
+          key={modal.abono?.id ?? `nuevo-${modal.local.id}`}
+          local={modal.local}
+          abono={modal.abono}
           mes={mes}
           anio={anio}
           montoAcordado={(() => {
-            const pagosLocal = pagos.filter(p => p.local_id === modal.id)
+            const pagosLocal = pagos.filter(p => p.local_id === modal.local.id)
             return pagosLocal.length > 0
               ? Math.max(...pagosLocal.map(p => Number(p.monto_acordado ?? 0)))
-              : (MONTOS_ACORDADOS[modal.id] ?? 0)
+              : (MONTOS_ACORDADOS[modal.local.id] ?? 0)
           })()}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); loadAll() }}
