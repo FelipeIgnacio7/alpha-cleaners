@@ -93,8 +93,12 @@ def main():
         if len(pagina) < 1000:
             break
     print(f'[zafepay] base: {n} filas -> {"CUADRA" if n == len(filas) else "REVISAR (esperaba " + str(len(filas)) + ")"}')
-    for mes in ('2026-10', '2026-11'):
-        ds = api('GET', f'{TABLA}?select=valor&estado=eq.Pagado&fecha_pago=gte.{mes}-01&fecha_pago=lte.{mes}-31&limit=1000') or []
+    import calendar, datetime
+    hoy = datetime.date.today()
+    for k in (1, 0):
+        y, m = (hoy.year, hoy.month - 1) if k and hoy.month > 1 else ((hoy.year - 1, 12) if k else (hoy.year, hoy.month))
+        mes, ultimo = f'{y}-{m:02d}', calendar.monthrange(y, m)[1]
+        ds = api('GET', f'{TABLA}?select=valor&estado=eq.Pagado&fecha_pago=gte.{mes}-01&fecha_pago=lte.{mes}-{ultimo}&limit=1000') or []
         print(f'          {mes}: {len(ds)} cobros, ${int(sum(float(d["valor"]) for d in ds)):,}')
 
 
