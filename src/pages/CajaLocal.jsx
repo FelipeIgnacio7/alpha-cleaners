@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Droplets, Lock, Plus, Search, X, CheckCircle2, AlertTriangle, ClipboardCheck, ArrowUpDown, Crown,
   RefreshCw, Car, Eye, CalendarDays, LogIn, ConciergeBell, DollarSign, Flag, CarFront, Trash2, Contact2 as IdCard,
-  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight, Pencil,
+  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight, Pencil, Gift, MessageCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { nombreParaSaludo } from '../lib/reactivacion'
 import {
   LOCAL_FONTOVA, TAMANOS, MEDIOS, fmt, hoyLocal, horaLocal, normalizePatente, nombreServicio,
   precioServicio, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente, tipoUsoMembresia,
@@ -138,6 +139,8 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   const [medio, setMedio] = useState(null)
   const [monto, setMonto] = useState(String(pendiente))
   const [conRecargo, setConRecargo] = useState(true)
+  const [propina, setPropina] = useState('')
+  const [medioPropina, setMedioPropina] = useState(null)   // null = el mismo medio del cobro
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const recargo = medio === 'credito' && conRecargo ? Math.round((Number(monto) || 0) * RECARGO_CREDITO) : 0
@@ -150,8 +153,14 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
     const { error: e } = await supabase.from('caja_pagos').insert({
       trabajo_id: trabajo.id, local_id: trabajo.local_id, fecha: hoyLocal(), monto: m, medio, recargo,
     })
+    if (e) { setSaving(false); return setError('No se pudo registrar el cobro. Revisa la conexión.') }
+    if (Number(propina) > 0) {
+      const { error: ep } = await supabase.from('caja_propinas').insert({
+        local_id: trabajo.local_id, trabajo_id: trabajo.id, fecha: hoyLocal(), monto: Number(propina), medio: medioPropina || medio,
+      })
+      if (ep) { setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Regístrala desde el trabajo con "Registrar propina".') }
+    }
     setSaving(false)
-    if (e) return setError('No se pudo registrar el cobro. Revisa la conexión.')
     onListo()
   }
 
@@ -192,6 +201,18 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
               Recargo {Math.round(RECARGO_CREDITO * 100)}% tarjeta de crédito (+{fmt(Math.round((Number(monto) || 0) * RECARGO_CREDITO))})
             </label>
           )}
+          <div className="rounded-2xl bg-white/60 border border-slate-200/70 p-3 space-y-2">
+            <label className={labelCls}>Propina para el equipo (opcional)</label>
+            <input type="number" inputMode="numeric" value={propina} onChange={e => setPropina(e.target.value)} placeholder="ej: 2000" className={inputCls} />
+            {Number(propina) > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-1.5">¿Cómo pagó la propina?</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {MEDIOS.map(m => <button key={m.key} type="button" onClick={() => setMedioPropina(m.key)} className={chip((medioPropina || medio) === m.key)}>{m.label}</button>)}
+                </div>
+              </div>
+            )}
+          </div>
           {error && <p className="text-sm text-rose-600">{error}</p>}
         </>
       )}
@@ -199,8 +220,62 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   )
 }
 
+// ---------- Propina suelta o de un trabajo ya cobrado ----------
+function ModalPropina({ trabajo, onListo, onCerrar }) {
+  const [monto, setMonto] = useState('')
+  const [medio, setMedio] = useState('efectivo')
+  const [notas, setNotas] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function guardar() {
+    if (!Number(monto) || Number(monto) <= 0) return setError('Ingresa el monto de la propina.')
+    setSaving(true)
+    const { error: e } = await supabase.from('caja_propinas').insert({
+      local_id: LOCAL_FONTOVA, trabajo_id: trabajo?.id ?? null, fecha: hoyLocal(), monto: Number(monto), medio, notas: notas.trim() || null,
+    })
+    setSaving(false)
+    if (e) return setError('No se pudo guardar la propina. Revisa la conexión.')
+    onListo()
+  }
+
+  return (
+    <Modal titulo="Registrar propina" subtitulo={trabajo ? <ChipTrabajo t={trabajo} /> : <p className="text-xs text-slate-500 mt-0.5">Propina sin trabajo asociado</p>} onCerrar={onCerrar}
+      footer={<>
+        <button onClick={onCerrar} className={`${btnSecundario} px-5 py-2.5`}>Cerrar</button>
+        <button onClick={guardar} disabled={saving} className={`${btnPrimario} px-5 py-2.5`}>{saving ? 'Guardando...' : 'Guardar propina'}</button>
+      </>}>
+      <p className="text-xs text-slate-500">Las propinas son del equipo: no suman a las ventas ni a los ingresos del negocio.</p>
+      <div><label className={labelCls}>Monto *</label><input type="number" inputMode="numeric" autoFocus value={monto} onChange={e => { setMonto(e.target.value); setError(null) }} className={inputCls} /></div>
+      <div>
+        <label className={labelCls}>¿Cómo la pagó?</label>
+        <div className="grid grid-cols-2 gap-2">
+          {MEDIOS.map(m => <button key={m.key} type="button" onClick={() => setMedio(m.key)} className={chip(medio === m.key)}>{m.label}</button>)}
+        </div>
+      </div>
+      <div><label className={labelCls}>Notas</label><input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Opcional" className={inputCls} /></div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+    </Modal>
+  )
+}
+
+// ---------- Aviso al cliente: "tu auto está listo" (envío manual por WhatsApp, como en Aquapp) ----------
+const KEY_AVISADOS = 'alpha:avisados'
+const leerAvisados = () => { try { return JSON.parse(localStorage.getItem(KEY_AVISADOS) || '[]') } catch { return [] } }
+
+// "+56 9 1234 5678", "912345678" o "12345678" -> "56912345678"; si no es un celular chileno válido -> null
+function telefonoWhatsApp(t) {
+  let d = (t || '').replace(/\D/g, '')
+  if (d.length === 8) d = '569' + d
+  else if (d.length === 9 && d.startsWith('9')) d = '56' + d
+  return /^569\d{8}$/.test(d) ? d : null
+}
+
+const mensajeListo = (trabajo) =>
+  `Hola ${nombreParaSaludo(trabajo.cliente) || ''}`.trim() + ' 👋\n\nTu auto ya está listo en Alpha Cleaners 🚗✨ Puedes pasar a retirarlo.\n\n📍 ' + LOCAL_DIRECCION + ', Huechuraba\n\n¡Gracias por preferirnos!'
+
 // ---------- Acciones de un trabajo (como el menú de Aquapp) ----------
-function ModalAcciones({ trabajo, pagos, servicios, descuentos, onCobrar, onCambio, onCerrar }) {
+function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobrar, onPropina, onCambio, onCerrar }) {
   const cobrado = cobradoDe(trabajo, pagos)
   // Edición de servicios y precios del trabajo ya creado (sin borrarlo y volver a ingresarlo)
   const [editando, setEditando] = useState(false)
@@ -248,10 +323,21 @@ function ModalAcciones({ trabajo, pagos, servicios, descuentos, onCobrar, onCamb
   const pendiente = Math.max(0, Number(trabajo.total) - cobrado)
   const susPagos = pagos.filter(p => p.trabajo_id === trabajo.id)
 
-  async function actualizar(campos) {
+  const susPropinas = propinas.filter(p => p.trabajo_id === trabajo.id)
+  const [avisados, setAvisados] = useState(leerAvisados)
+  const telWa = telefonoWhatsApp(trabajo.telefono)
+  const yaAvisado = avisados.includes(trabajo.id)
+
+  async function actualizar(campos, { cerrar = true } = {}) {
     const { error } = await supabase.from('caja_trabajos').update(campos).eq('id', trabajo.id)
     if (error) alert('No se pudo guardar. Revisa la conexión.')
-    onCambio(); onCerrar()
+    onCambio(); if (cerrar) onCerrar()
+  }
+  function avisarListo() {
+    window.open(`https://wa.me/${telWa}?text=${encodeURIComponent(mensajeListo(trabajo))}`, '_blank', 'noopener')
+    const nuevos = [...new Set([...avisados, trabajo.id])].slice(-300)
+    setAvisados(nuevos)
+    try { localStorage.setItem(KEY_AVISADOS, JSON.stringify(nuevos)) } catch { /* sin almacenamiento */ }
   }
   async function anular() {
     if (susPagos.length) return alert('Este trabajo ya tiene un cobro registrado. Pide a la administración que lo corrija.')
@@ -328,12 +414,16 @@ function ModalAcciones({ trabajo, pagos, servicios, descuentos, onCobrar, onCamb
         <div className="flex justify-between font-bold text-slate-900 pt-1 border-t border-slate-200/70"><span>Total</span><span>{fmt(trabajo.total)}</span></div>
         <div className="flex justify-between text-slate-500"><span>Cobrado</span><span>{fmt(cobrado)}{susPagos.length ? ` · ${[...new Set(susPagos.map(p => nombreMedio(p.medio)))].join(', ')}` : ''}</span></div>
         {pendiente > 0 && <div className="flex justify-between text-amber-600 font-medium"><span>Pendiente</span><span>{fmt(pendiente)}</span></div>}
+        {susPropinas.length > 0 && <div className="flex justify-between text-slate-500"><span>Propina (equipo)</span><span>{fmt(susPropinas.reduce((a, p) => a + Number(p.monto), 0))} · {[...new Set(susPropinas.map(p => nombreMedio(p.medio)))].join(', ')}</span></div>}
       </div>
       <div className="space-y-0.5">
         <Opcion icon={Pencil} label="Editar servicios y precios" onClick={empezarEdicion} />
         <Opcion icon={DollarSign} label="Registrar cobro" onClick={onCobrar} deshabilitado={pendiente <= 0} nota={pendiente <= 0 ? 'Pagado' : fmt(pendiente)} />
+        <Opcion icon={Gift} label="Registrar propina" onClick={onPropina} />
         <Opcion icon={Flag} label="Finalizar" deshabilitado={trabajo.estado !== 'ingresado'} nota={trabajo.estado !== 'ingresado' ? 'Listo' : ''}
-          onClick={() => actualizar({ estado: 'finalizado', finalizado_at: new Date().toISOString() })} />
+          onClick={() => actualizar({ estado: 'finalizado', finalizado_at: new Date().toISOString() }, { cerrar: false })} />
+        <Opcion icon={MessageCircle} label="Avisar al cliente que está listo" deshabilitado={!telWa}
+          nota={!telWa ? 'Falta cargar teléfono' : yaAvisado ? 'Aviso enviado ✓' : 'WhatsApp'} onClick={avisarListo} />
         <Opcion icon={CarFront} label="Entregar vehículo" deshabilitado={trabajo.estado === 'entregado'} nota={trabajo.estado === 'entregado' ? 'Entregado' : ''}
           onClick={() => actualizar({ estado: 'entregado', entregado_at: new Date().toISOString(), finalizado_at: trabajo.finalizado_at || new Date().toISOString() })} />
         <div className="border-t border-slate-200/70 my-1" />
@@ -800,12 +890,13 @@ function ModalMovimiento({ onGuardado, onCerrar }) {
   )
 }
 
-function VistaCaja({ trabajos, pagos, gastos, onNuevoMovimiento }) {
+function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento, onPropina }) {
   const gastosEfectivo = gastos.filter(g => g.metodo_pago === 'efectivo').reduce((a, g) => a + Number(g.monto), 0)
   const totalGastos = gastos.reduce((a, g) => a + Number(g.monto), 0)
-  const r = resumenDia(trabajos, pagos, gastosEfectivo)
+  const r = resumenDia(trabajos, pagos, gastosEfectivo, propinas)
   const porId = Object.fromEntries(trabajos.map(t => [t.id, t]))
   const movimientos = [
+    ...propinas.map(pr => ({ tipo: 'propina', ts: pr.created_at, monto: Number(pr.monto), pr, t: porId[pr.trabajo_id] })),
     ...pagos.map(p => ({ tipo: 'ingreso', ts: p.created_at, monto: Number(p.monto) + Number(p.recargo || 0), p, t: porId[p.trabajo_id] })),
     ...gastos.map(g => ({ tipo: 'salida', ts: g.created_at, monto: Number(g.monto), g })),
   ].sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
@@ -842,7 +933,10 @@ function VistaCaja({ trabajos, pagos, gastos, onNuevoMovimiento }) {
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">Caja</h1>
             <p className="text-xs text-slate-400 mt-0.5">Movimientos de hoy ({movimientos.length})</p>
           </div>
-          <button onClick={onNuevoMovimiento} className={`${btnPrimario} hidden md:inline-flex px-5 py-2.5`}><Plus size={18} /> Nuevo movimiento</button>
+          <div className="hidden md:flex gap-2">
+            <button onClick={onPropina} className={`${btnSecundario} px-4 py-2.5`}><Gift size={16} /> Propina</button>
+            <button onClick={onNuevoMovimiento} className={`${btnPrimario} px-5 py-2.5`}><Plus size={18} /> Nuevo movimiento</button>
+          </div>
         </div>
         <div className="inline-flex items-center gap-2 rounded-xl bg-white/70 border border-slate-200/80 px-3 py-2 mb-4 text-sky-600 font-medium">
           <CalendarDays size={16} /> {fechaLarga()}
@@ -855,13 +949,15 @@ function VistaCaja({ trabajos, pagos, gastos, onNuevoMovimiento }) {
           {movimientos.map((m, i) => (
             <div key={i} className="rounded-2xl bg-white/70 border border-white/80 px-4 py-3 grid grid-cols-[1fr_auto] md:grid-cols-[1fr_0.7fr_1fr_2fr] gap-x-3 gap-y-1 items-center text-sm">
               <span className="font-medium text-slate-800 flex items-center gap-2">
-                {m.tipo === 'ingreso' ? <ArrowDownLeft size={15} className="text-emerald-500" /> : <ArrowUpRight size={15} className="text-rose-500" />}
-                {m.tipo === 'ingreso' ? 'Cobro por trabajos' : (m.g.categorias_gasto?.nombre || 'Gasto')}
+                {m.tipo === 'salida' ? <ArrowUpRight size={15} className="text-rose-500" /> : m.tipo === 'propina' ? <Gift size={15} className="text-violet-500" /> : <ArrowDownLeft size={15} className="text-emerald-500" />}
+                {m.tipo === 'ingreso' ? 'Cobro por trabajos' : m.tipo === 'propina' ? 'Propina (equipo)' : (m.g.categorias_gasto?.nombre || 'Gasto')}
               </span>
-              <span className={`font-bold text-right md:text-left ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>{m.tipo === 'ingreso' ? '' : '− '}{fmt(m.monto)}</span>
-              <span className="text-slate-700 truncate">{m.tipo === 'ingreso' ? (m.t?.cliente || 'Sin nombre') : (m.g.proveedor || '—')}</span>
+              <span className={`font-bold text-right md:text-left ${m.tipo === 'ingreso' ? 'text-emerald-600' : m.tipo === 'propina' ? 'text-violet-600' : 'text-rose-600'}`}>{m.tipo === 'salida' ? '− ' : ''}{fmt(m.monto)}</span>
+              <span className="text-slate-700 truncate">{m.tipo === 'salida' ? (m.g.proveedor || '—') : (m.t?.cliente || 'Sin nombre')}</span>
               <span className="text-xs text-slate-500 col-span-2 md:col-span-1">
-                {m.tipo === 'ingreso'
+                {m.tipo === 'propina'
+                  ? <>Propina {m.t ? `del trabajo de ${m.t.cliente || 'sin nombre'} (patente ${m.t.patente})` : 'suelta'} · {nombreMedio(m.pr.medio)}. No es ingreso del negocio.</>
+                  : m.tipo === 'ingreso'
                   ? <>Vinculado al trabajo de {m.t?.cliente || 'sin nombre'} ({m.t?.marca || 'sin marca'}, patente {m.t?.patente}). Servicios: {(m.t?.items || []).map(x => x.nombre).join(', ')}. Billetera: {nombreMedio(m.p.medio)}{Number(m.p.recargo) > 0 ? ` (incluye recargo ${fmt(m.p.recargo)})` : ''}.</>
                   : <>Salida de dinero · {METODOS_GASTO.find(x => x.value === m.g.metodo_pago)?.label || 'sin medio'}{m.g.notas ? ` · ${m.g.notas}` : ''}</>}
               </span>
@@ -882,12 +978,19 @@ function VistaCaja({ trabajos, pagos, gastos, onNuevoMovimiento }) {
           {MEDIOS.map(m => {
             const Icon = ICONO_MEDIO[m.key]
             const salida = m.key === 'efectivo' ? gastosEfectivo : 0
-            return <div key={m.key} className="flex justify-between text-slate-600"><span className="flex items-center gap-2"><Icon size={14} /> {m.label}</span><span className="font-semibold text-slate-800">{fmt(r.porMedio[m.key] - salida)}</span></div>
+            return <div key={m.key} className="flex justify-between text-slate-600"><span className="flex items-center gap-2"><Icon size={14} /> {m.label}</span><span className="font-semibold text-slate-800">{fmt(r.porMedio[m.key] + r.propinasPorMedio[m.key] - salida)}</span></div>
           })}
+          {r.propinas > 0 && <p className="text-[11px] text-slate-400">Incluye {fmt(r.propinas)} de propinas del equipo.</p>}
         </div>
         <div className={`${glass} rounded-3xl p-5 space-y-3`}>
           <p className="font-semibold text-slate-900 flex items-center gap-2"><Calculator size={16} /> Cierre de caja</p>
           <div className="text-sm flex justify-between text-slate-600"><span>Efectivo que debería haber</span><span className="font-bold text-slate-900">{fmt(r.efectivoEsperado)}</span></div>
+          {r.propinas > 0 && (
+            <div className="text-xs text-slate-500 space-y-0.5 rounded-xl bg-white/60 px-3 py-2">
+              <p className="font-semibold text-slate-600">Propinas del equipo: {fmt(r.propinas)}</p>
+              {MEDIOS.filter(m => r.propinasPorMedio[m.key] > 0).map(m => <p key={m.key}>{m.label}: {fmt(r.propinasPorMedio[m.key])}{m.key === 'efectivo' ? ' (está dentro del efectivo de arriba)' : ''}</p>)}
+            </div>
+          )}
           <div>
             <label className={labelCls}>Efectivo contado *</label>
             <input type="number" inputMode="numeric" value={contado} onChange={e => setContado(e.target.value)} className={inputCls} />
@@ -921,6 +1024,7 @@ function Caja() {
   const [trabajos, setTrabajos] = useState([])
   const [pagos, setPagos] = useState([])
   const [gastos, setGastos] = useState([])
+  const [propinas, setPropinas] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [modal, setModal] = useState(null)   // { tipo: 'nuevo' | 'acciones' | 'cobro' | 'movimiento', trabajo }
@@ -928,15 +1032,17 @@ function Caja() {
 
   const cargarDia = useCallback(async () => {
     const hoy = hoyLocal()
-    const [t, p, g] = await Promise.all([
+    const [t, p, g, pr] = await Promise.all([
       supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('caja_pagos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('gastos').select('id, monto, proveedor, notas, metodo_pago, created_at, categorias_gasto(nombre)').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
+      supabase.from('caja_propinas').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
     ])
     if (t.error || p.error) setMsg({ ok: false, text: 'No se pudieron cargar los datos. Revisa la conexión.' })
     setTrabajos(t.data ?? [])
     setPagos(p.data ?? [])
     setGastos(g.data ?? [])
+    setPropinas(pr.data ?? [])   // si la tabla aún no existe, simplemente no hay propinas
   }, [])
 
   useEffect(() => {
@@ -1002,7 +1108,7 @@ function Caja() {
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
             vista === 'trabajos'
               ? <VistaTrabajos trabajos={trabajos} pagos={pagos} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} />
-              : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
+              : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} onPropina={() => setModal({ tipo: 'propina' })} />
           )}
         </main>
       </div>
@@ -1027,12 +1133,16 @@ function Caja() {
           onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
-        <ModalAcciones trabajo={trabajoActual} pagos={pagos} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
+        <ModalAcciones trabajo={trabajoActual} pagos={pagos} propinas={propinas} onPropina={() => setModal({ tipo: 'propina', trabajo: trabajoActual })} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
         <ModalCobro trabajo={trabajoActual} pendiente={pendienteActual} onCerrar={() => setModal(null)}
           onListo={() => { setModal(null); aviso('Cobro registrado.'); cargarDia() }} />
+      )}
+      {modal?.tipo === 'propina' && (
+        <ModalPropina trabajo={modal.trabajo ? (trabajos.find(t => t.id === modal.trabajo.id) || modal.trabajo) : null} onCerrar={() => setModal(null)}
+          onListo={() => { setModal(null); aviso('Propina registrada.'); cargarDia() }} />
       )}
       {modal?.tipo === 'movimiento' && (
         <ModalMovimiento onCerrar={() => setModal(null)} onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />

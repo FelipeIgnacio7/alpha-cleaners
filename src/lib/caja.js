@@ -68,12 +68,16 @@ export const cobradoDe = (trabajo, pagos) =>
 // billetera pero no abona al trabajo; se suma a los saldos por medio de pago.
 export const RECARGO_CREDITO = 0.10
 
-export function resumenDia(trabajos, pagos, gastosEfectivo = 0) {
+export function resumenDia(trabajos, pagos, gastosEfectivo = 0, propinas = []) {
   const validos = trabajos.filter(t => !t.anulado)
   const vendido = validos.reduce((a, t) => a + Number(t.total), 0)
   const porMedio = Object.fromEntries(MEDIOS.map(m => [m.key, 0]))
   pagos.forEach(p => { porMedio[p.medio] = (porMedio[p.medio] || 0) + Number(p.monto) + Number(p.recargo || 0) })
   const cobrado = Object.values(porMedio).reduce((a, b) => a + b, 0)
+  // Propinas del equipo: NO son ingreso del negocio, pero la plata pasa por la caja y las billeteras
+  const propinasPorMedio = Object.fromEntries(MEDIOS.map(m => [m.key, 0]))
+  propinas.forEach(p => { propinasPorMedio[p.medio] = (propinasPorMedio[p.medio] || 0) + Number(p.monto) })
+  const propinasTotal = Object.values(propinasPorMedio).reduce((a, b) => a + b, 0)
   const recargos = pagos.reduce((a, p) => a + Number(p.recargo || 0), 0)
   const pendientes = validos.filter(t => Number(t.total) - cobradoDe(t, pagos) > 0)
   const pendiente = pendientes.reduce((a, t) => a + Number(t.total) - cobradoDe(t, pagos), 0)
@@ -88,7 +92,10 @@ export function resumenDia(trabajos, pagos, gastosEfectivo = 0) {
     pendiente,
     conDeuda: pendientes.length,
     gastosEfectivo,
-    efectivoEsperado: porMedio.efectivo - gastosEfectivo,
+    propinas: propinasTotal,
+    propinasPorMedio,
+    // El efectivo en caja incluye las propinas en efectivo (se cuentan aparte para entregarlas al equipo)
+    efectivoEsperado: porMedio.efectivo + propinasPorMedio.efectivo - gastosEfectivo,
   }
 }
 

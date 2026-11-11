@@ -21,18 +21,21 @@ function Dia() {
   const [trabajos, setTrabajos] = useState([])
   const [pagos, setPagos] = useState([])
   const [cierre, setCierre] = useState(null)
+  const [propinas, setPropinas] = useState([])
   const [aquapp, setAquapp] = useState(null)
   const [loading, setLoading] = useState(true)
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [t, p, c, ta, tx] = await Promise.all([
+    const [t, p, c, ta, tx, pr] = await Promise.all([
       supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha).order('hora'),
       supabase.from('caja_pagos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha),
       supabase.from('caja_cierres').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha).maybeSingle(),
       supabase.from('trabajos_aquapp').select('monto, descuento, cobrado').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha),
       supabase.from('transacciones_lavado').select('monto').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha),
+      supabase.from('caja_propinas').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', fecha),
     ])
+    setPropinas(pr.data ?? [])
     setTrabajos(t.data ?? [])
     setPagos(p.data ?? [])
     setCierre(c.data ?? null)
@@ -47,7 +50,7 @@ function Dia() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  const r = resumenDia(trabajos, pagos)
+  const r = resumenDia(trabajos, pagos, 0, propinas)
   const hayAquapp = aquapp && (aquapp.trabajos > 0 || aquapp.cobrado > 0)
 
   return (
@@ -99,6 +102,11 @@ function Dia() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           {MEDIOS.map(m => <div key={m.key}><p className="text-xs text-gray-400">{m.label}</p><p className="text-gray-100 font-medium">{fmt(r.porMedio[m.key])}</p></div>)}
         </div>
+        {r.propinas > 0 && (
+          <p className="text-xs text-violet-300 mt-3">
+            Propinas del equipo: {fmt(r.propinas)} ({MEDIOS.filter(m => r.propinasPorMedio[m.key] > 0).map(m => `${m.label} ${fmt(r.propinasPorMedio[m.key])}`).join(' · ')}). No son ingreso del negocio.
+          </p>
+        )}
         {cierre ? (
           <p className="text-xs text-gray-400 mt-3">
             Cierre guardado: efectivo contado {fmt(cierre.efectivo_contado)} · esperado {fmt(cierre.resumen?.efectivoEsperado)}
