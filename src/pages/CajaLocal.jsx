@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Droplets, Lock, Plus, Search, X, CheckCircle2, AlertTriangle, ClipboardCheck, ArrowUpDown, Crown,
   RefreshCw, Car, Eye, CalendarDays, LogIn, ConciergeBell, DollarSign, Flag, CarFront, Trash2, Contact2 as IdCard,
-  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight,
+  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight, Pencil,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
@@ -200,8 +200,51 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
 }
 
 // ---------- Acciones de un trabajo (como el menú de Aquapp) ----------
-function ModalAcciones({ trabajo, pagos, onCobrar, onCambio, onCerrar }) {
+function ModalAcciones({ trabajo, pagos, servicios, descuentos, onCobrar, onCambio, onCerrar }) {
   const cobrado = cobradoDe(trabajo, pagos)
+  // Edición de servicios y precios del trabajo ya creado (sin borrarlo y volver a ingresarlo)
+  const [editando, setEditando] = useState(false)
+  const [items, setItems] = useState([])
+  const [descuentoId, setDescuentoId] = useState('')
+  const [filtro, setFiltro] = useState('')
+  const [errorEd, setErrorEd] = useState(null)
+  const [guardando, setGuardando] = useState(false)
+  const vigentes = descuentos.filter(d => descuentoVigente(d) || String(d.id) === String(trabajo.descuento_id))
+  const descuentoSel = vigentes.find(d => String(d.id) === String(descuentoId)) || null
+  const calcEd = calcularTrabajo(items, descuentoSel)
+  const filtrados = filtro.trim()
+    ? servicios.filter(sv => nombreServicio(sv).toLowerCase().includes(filtro.trim().toLowerCase())).slice(0, 8)
+    : []
+
+  function empezarEdicion() {
+    setItems((trabajo.items || []).map((i, k) => ({ ...i, key: `e${k}` })))
+    setDescuentoId(trabajo.descuento_id ? String(trabajo.descuento_id) : '')
+    setFiltro(''); setErrorEd(null); setEditando(true)
+  }
+  function agregarServicio(sv) {
+    const p = precioServicio(sv, trabajo.tamano)
+    setItems(prev => [...prev, { key: `n${Date.now()}${Math.random()}`, servicio_id: sv.id, nombre: nombreServicio(sv), nombre_base: sv.nombre, precio: p ?? 0, es_membresia: sv.es_membresia }])
+    setFiltro('')
+  }
+  const cambiarPrecio = (key, v) => setItems(prev => prev.map(i => i.key === key ? { ...i, precio: v === '' ? '' : Number(v) } : i))
+  async function guardarEdicion() {
+    if (items.length === 0) return setErrorEd('El trabajo debe tener al menos un servicio.')
+    if (items.some(i => i.precio === '' || Number(i.precio) < 0)) return setErrorEd('Hay un servicio sin precio.')
+    if (calcEd.total < cobrado) return setErrorEd(`Ya se cobraron ${fmt(cobrado)}, más que el nuevo total (${fmt(calcEd.total)}). Pide a la administración que corrija el cobro.`)
+    setGuardando(true)
+    const { error } = await supabase.from('caja_trabajos').update({
+      items: items.map(({ servicio_id, nombre, nombre_base, precio, es_membresia }) => ({ servicio_id, nombre, nombre_base, precio: Number(precio) || 0, es_membresia })),
+      subtotal: calcEd.subtotal,
+      descuento_id: descuentoSel?.id ?? null,
+      descuento_nombre: descuentoSel?.nombre ?? null,
+      descuento_monto: calcEd.descuentoMonto,
+      total: calcEd.total,
+      campana: descuentoSel?.campana ?? null,
+    }).eq('id', trabajo.id)
+    setGuardando(false)
+    if (error) return setErrorEd('No se pudo guardar. Revisa la conexión.')
+    onCambio(); setEditando(false)
+  }
   const pendiente = Math.max(0, Number(trabajo.total) - cobrado)
   const susPagos = pagos.filter(p => p.trabajo_id === trabajo.id)
 
@@ -226,7 +269,57 @@ function ModalAcciones({ trabajo, pagos, onCobrar, onCambio, onCerrar }) {
   )
 
   return (
-    <Modal titulo={trabajo.cliente || 'Sin nombre'} subtitulo={<ChipTrabajo t={trabajo} />} onCerrar={onCerrar}>
+    <Modal titulo={trabajo.cliente || 'Sin nombre'} subtitulo={<ChipTrabajo t={trabajo} />} onCerrar={onCerrar}
+      footer={editando && <>
+        <button onClick={() => setEditando(false)} className={`${btnSecundario} px-5 py-2.5`}>Cancelar</button>
+        <button onClick={guardarEdicion} disabled={guardando} className={`${btnPrimario} px-5 py-2.5`}>{guardando ? 'Guardando...' : `Guardar cambios · ${fmt(calcEd.total)}`}</button>
+      </>}>
+      {editando ? (
+        <>
+          <p className="text-xs text-slate-500">Cambia los precios, quita servicios o agrega otros. Lo ya cobrado ({fmt(cobrado)}) se mantiene.</p>
+          <div className="rounded-xl bg-white/60 border border-slate-200/70 p-2 space-y-1.5">
+            {items.map(it => (
+              <div key={it.key} className="flex items-center gap-2">
+                <ConciergeBell size={14} className="text-slate-400 shrink-0" />
+                <span className="flex-1 text-sm text-slate-800 min-w-0 truncate">{it.nombre}</span>
+                <input type="number" inputMode="numeric" value={it.precio} onChange={e => cambiarPrecio(it.key, e.target.value)}
+                  className="w-28 bg-white border border-slate-200 text-slate-900 rounded-lg px-2 py-1.5 text-right" />
+                <button type="button" onClick={() => setItems(prev => prev.filter(x => x.key !== it.key))} className="text-slate-400 hover:text-rose-600 p-1"><X size={16} /></button>
+              </div>
+            ))}
+          </div>
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="Agregar otro servicio (tapiz, motor, cera...)" className={`${inputCls} pl-9`} />
+          </div>
+          {filtrados.length > 0 && (
+            <div className="rounded-xl border border-slate-200/80 bg-white/80 divide-y divide-slate-100">
+              {filtrados.map(sv => {
+                const p = precioServicio(sv, trabajo.tamano)
+                return (
+                  <button key={sv.id} type="button" onClick={() => agregarServicio(sv)} className="w-full flex justify-between items-center px-3 py-2.5 text-left hover:bg-sky-50">
+                    <span className="text-sm text-slate-800">{nombreServicio(sv)}</span>
+                    <span className="text-xs text-slate-400">{p !== null ? fmt(p) : 'precio a ingresar'}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div>
+            <label className={labelCls}>Descuento</label>
+            <select value={descuentoId} onChange={e => setDescuentoId(e.target.value)} className={inputCls}>
+              <option value="">Sin descuento</option>
+              {vigentes.map(d => <option key={d.id} value={d.id}>{d.nombre} ({Number(d.porcentaje)}%)</option>)}
+            </select>
+          </div>
+          <div className="rounded-xl bg-white/70 border border-slate-200/70 px-3 py-2 text-sm">
+            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{fmt(calcEd.subtotal)}</span></div>
+            {calcEd.descuentoMonto > 0 && <div className="flex justify-between text-violet-600"><span>Descuento</span><span>− {fmt(calcEd.descuentoMonto)}</span></div>}
+            <div className="flex justify-between text-slate-900 font-bold text-base"><span>Total</span><span>{fmt(calcEd.total)}</span></div>
+          </div>
+          {errorEd && <p className="text-sm text-rose-600">{errorEd}</p>}
+        </>
+      ) : (<>
       <div className="rounded-2xl bg-white/70 border border-slate-200/70 p-3 text-sm space-y-1">
         {(trabajo.items || []).map((i, k) => (
           <div key={k} className="flex justify-between text-slate-700"><span>{i.nombre}</span><span>{fmt(i.precio)}</span></div>
@@ -237,6 +330,7 @@ function ModalAcciones({ trabajo, pagos, onCobrar, onCambio, onCerrar }) {
         {pendiente > 0 && <div className="flex justify-between text-amber-600 font-medium"><span>Pendiente</span><span>{fmt(pendiente)}</span></div>}
       </div>
       <div className="space-y-0.5">
+        <Opcion icon={Pencil} label="Editar servicios y precios" onClick={empezarEdicion} />
         <Opcion icon={DollarSign} label="Registrar cobro" onClick={onCobrar} deshabilitado={pendiente <= 0} nota={pendiente <= 0 ? 'Pagado' : fmt(pendiente)} />
         <Opcion icon={Flag} label="Finalizar" deshabilitado={trabajo.estado !== 'ingresado'} nota={trabajo.estado !== 'ingresado' ? 'Listo' : ''}
           onClick={() => actualizar({ estado: 'finalizado', finalizado_at: new Date().toISOString() })} />
@@ -245,6 +339,7 @@ function ModalAcciones({ trabajo, pagos, onCobrar, onCambio, onCerrar }) {
         <div className="border-t border-slate-200/70 my-1" />
         <Opcion icon={Trash2} label="Eliminar" peligro onClick={anular} />
       </div>
+      </>)}
     </Modal>
   )
 }
@@ -919,7 +1014,7 @@ function Caja() {
           onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
-        <ModalAcciones trabajo={trabajoActual} pagos={pagos} onCambio={cargarDia} onCerrar={() => setModal(null)}
+        <ModalAcciones trabajo={trabajoActual} pagos={pagos} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
