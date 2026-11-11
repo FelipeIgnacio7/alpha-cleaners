@@ -461,23 +461,24 @@ function PanelMembresia({ membresia, servicios, items, onAgregar, onQuitar }) {
           {quedan > 0 ? ` · le ${quedan === 1 ? 'queda 1' : `quedan ${quedan}`}` : ''}
         </p>
         <div className="space-y-1.5">
-          {Array.from({ length: Math.max(membresia.cupoInterior, usadosInt.length + nuevosInt.length) }).map((_, i) => {
+          {Array.from({ length: membresia.cupoInterior }).map((_, i) => {
             if (i < usadosInt.length) {
               return <label key={i} className="flex items-center gap-2 text-sm text-slate-400"><input type="checkbox" checked disabled className="w-4 h-4" /> Lavado con interior {i + 1} · usado el {ddmm(usadosInt[i].fecha)}</label>
             }
             const nuevo = nuevosInt[i - usadosInt.length]
-            const extra = i >= membresia.cupoInterior
+            // Solo se puede marcar el siguiente lavado disponible (en orden) y nunca más que el cupo del mes
+            const habilitado = Boolean(nuevo) || i === usadosInt.length + nuevosInt.length
             return (
-              <label key={i} className={`flex items-center gap-2 text-sm ${nuevo ? 'text-amber-800 font-medium' : 'text-slate-700'}`}>
-                <input type="checkbox" className="w-4 h-4" checked={Boolean(nuevo)}
+              <label key={i} className={`flex items-center gap-2 text-sm ${nuevo ? 'text-amber-800 font-medium' : habilitado ? 'text-slate-700' : 'text-slate-400'}`}>
+                <input type="checkbox" className="w-4 h-4" checked={Boolean(nuevo)} disabled={!habilitado}
                   onChange={() => nuevo ? onQuitar(nuevo.key) : servInterior && onAgregar(servInterior)} />
-                Lavado con interior {i + 1}{nuevo ? ' · se usa ahora' : ' · disponible'}{extra ? ' (sobre el cupo)' : ''}
+                Lavado con interior {i + 1}{nuevo ? ' · se usa ahora' : ' · disponible'}
               </label>
             )
           })}
         </div>
         {usadosInt.length >= membresia.cupoInterior && nuevosInt.length === 0 && (
-          <p className="text-xs text-amber-700 mt-1.5">Ya usó sus {membresia.cupoInterior} lavados con interior de este mes. Si quiere otro, se cobra como servicio normal.</p>
+          <p className="text-xs text-amber-700 mt-1.5">Ya usó sus {membresia.cupoInterior} lavados con interior de este mes: no se pueden registrar más como membresía. Si quiere otro, se cobra como servicio normal.</p>
         )}
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -589,6 +590,12 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
     if (items.some(it => it.precio === '' || (it.sinPrecio && !it.es_membresia))) {
       return setMsg({ ok: false, text: 'Hay un servicio sin precio. Escríbelo antes de crear el trabajo.' })
     }
+    const usosInterior = items.filter(i => i.es_membresia && tipoUsoMembresia(i.nombre_base || i.nombre) === 'interior').length
+    if (usosInterior > 0) {
+      if (!info?.membresia) return setMsg({ ok: false, text: 'Este vehículo no figura como socio: no se puede registrar un lavado de membresía. Si es socio nuevo, avisa a la administración.' })
+      const quedan = info.membresia.cupoInterior - info.membresia.interioresUsados
+      if (usosInterior > quedan) return setMsg({ ok: false, text: quedan <= 0 ? `Ya usó sus ${info.membresia.cupoInterior} lavados con interior de este mes. Quita el lavado de membresía o cóbralo como servicio normal.` : `Solo le ${quedan === 1 ? 'queda 1 lavado' : `quedan ${quedan} lavados`} con interior este mes.` })
+    }
     setSaving(true)
     const ya = new Date()
     const { error } = await supabase.from('caja_trabajos').insert({
@@ -655,6 +662,12 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
           </div>
         )}
       </div>
+      {info?.membresia && info.membresia.interioresUsados < info.membresia.cupoInterior
+        && items.some(i => !i.es_membresia && /^lavado full/i.test(i.nombre_base || i.nombre)) && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Ojo: es socio y todavía tiene lavados con interior disponibles. ¿Corresponde cobrarle este Lavado full? Si no, usa la casilla de la membresía.
+        </p>
+      )}
       {info?.membresia && <PanelMembresia membresia={info.membresia} servicios={servicios} items={items} onAgregar={agregar} onQuitar={quitar} />}
 
       {/* Cliente */}
