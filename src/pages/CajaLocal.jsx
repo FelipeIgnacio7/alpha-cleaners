@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Droplets, Lock, Plus, Search, X, CheckCircle2, AlertTriangle, ClipboardCheck, ArrowUpDown, Crown,
   RefreshCw, Car, Eye, CalendarDays, LogIn, ConciergeBell, DollarSign, Flag, CarFront, Trash2, Contact2 as IdCard,
-  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight, Pencil, Gift, MessageCircle,
+  CreditCard, Banknote, Landmark, ChevronLeft, MapPin, Calculator, ArrowDownLeft, ArrowUpRight, Pencil, Gift, MessageCircle, TrendingUp, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { nombreParaSaludo } from '../lib/reactivacion'
@@ -20,6 +20,11 @@ import {
 export const CAJA_TOKEN = 'edg28xx8nyy'
 const PIN_HASH = '869a038e14379e1f41f546899a09cd4a5d9d3e82eedc72e01ddd186e7c6a5e06'
 const PIN_KEY = 'alpha:caja-fontova'
+// Clave aparte para la pestaña de ventas (la barrera es solo de pantalla; la seguridad real está pendiente)
+const VENTAS_HASH = 'a8508a288310004ae64adc995d4ba15da86b8609d35292c4ffa69a67ed108c8c'
+const VENTAS_KEY = 'alpha:caja-ventas'
+// Desde esta fecha las ventas salen de la caja propia; antes, de lo cargado desde Aquapp
+const CAJA_DESDE = '2026-11-11'
 const LOCAL_NOMBRE = 'Fontova'
 const LOCAL_DIRECCION = 'Av. Pedro Fontova 7420'
 
@@ -459,12 +464,15 @@ function Resumen({ r }) {
   )
 }
 
-function VistaTrabajos({ trabajos, pagos, busqueda, onNuevo, onAbrir }) {
+function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda, onNuevo, onAbrir }) {
   const q = busqueda.trim().toLowerCase()
   const visibles = trabajos.filter(t => !t.anulado)
     .filter(t => !q || [t.cliente, t.patente, t.marca, t.modelo].some(v => (v || '').toLowerCase().includes(q)))
     .sort((a, b) => (b.hora || '').localeCompare(a.hora || ''))
   const r = resumenDia(trabajos, pagos)
+  const pendAnt = anteriores.filter(t => !t.anulado)
+    .filter(t => !q || [t.cliente, t.patente, t.marca, t.modelo].some(v => (v || '').toLowerCase().includes(q)))
+    .sort((a, b) => (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || '')))
 
   return (
     <div className="grid lg:grid-cols-[1fr_300px] gap-4 items-start">
@@ -479,6 +487,18 @@ function VistaTrabajos({ trabajos, pagos, busqueda, onNuevo, onAbrir }) {
         <div className="inline-flex items-center gap-2 rounded-xl bg-white/70 border border-slate-200/80 px-3 py-2 mb-4 text-sky-600 font-medium">
           <CalendarDays size={16} /> {fechaLarga()}
         </div>
+        {pendAnt.length > 0 && (
+          <div className="mb-5 rounded-2xl border border-amber-300/70 bg-amber-50/70 p-3 space-y-2">
+            <p className="text-sm font-semibold text-amber-800 flex items-center gap-1.5"><Flag size={15} /> Sin finalizar de días anteriores ({pendAnt.length})</p>
+            <p className="text-xs text-amber-700">Toca el trabajo para finalizarlo, cobrarlo o entregarlo.</p>
+            {pendAnt.map(t => (
+              <div key={t.id}>
+                <p className="text-[11px] text-amber-700 ml-1 mb-0.5">Ingresó el {ddmm(t.fecha)}</p>
+                <FilaTrabajo t={t} pagos={pagosAnteriores} onClick={() => onAbrir(t)} />
+              </div>
+            ))}
+          </div>
+        )}
         <div className="space-y-2">
           {visibles.length === 0 && (
             <div className="rounded-2xl bg-white/60 border border-white/80 p-10 text-center text-sm text-slate-500">
@@ -490,6 +510,144 @@ function VistaTrabajos({ trabajos, pagos, busqueda, onNuevo, onAbrir }) {
       </section>
       <Resumen r={r} />
     </div>
+  )
+}
+
+// ---------- Ventas del mes (con clave) ----------
+const nombreMes = (ym) => {
+  const [y, m] = ym.split('-').map(Number)
+  const n = new Date(y, m - 1, 1).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+  return n.charAt(0).toUpperCase() + n.slice(1)
+}
+const ymHoy = () => hoyLocal().slice(0, 7)
+const ymAnterior = () => { const [y, m] = ymHoy().split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+const finMes = (ym) => { const [y, m] = ym.split('-').map(Number); return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` }
+
+async function traerTodo(consulta) {
+  const out = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await consulta().range(from, from + 999)
+    if (error) throw error
+    out.push(...data)
+    if (data.length < 1000) break
+  }
+  return out
+}
+
+// Unifica Aquapp (antes de CAJA_DESDE) y la caja propia (desde CAJA_DESDE) en filas { fecha, cliente, patente, servicio, vendido, cobrado }
+async function cargarVentas(desde, hasta) {
+  const filas = []
+  if (desde < CAJA_DESDE) {
+    const aq = await traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, servicios, monto, descuento, cobrado')
+      .eq('local_id', LOCAL_FONTOVA).gte('fecha', desde).lte('fecha', hasta < CAJA_DESDE ? hasta : moverDiaStr(CAJA_DESDE, -1)).order('id'))
+    aq.forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
+  }
+  if (hasta >= CAJA_DESDE) {
+    const d2 = desde > CAJA_DESDE ? desde : CAJA_DESDE
+    const tr = await traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, items, total, anulado')
+      .eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).eq('anulado', false).order('created_at'))
+    const pg = await traerTodo(() => supabase.from('caja_pagos').select('id, trabajo_id, monto').eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).order('id'))
+    const cob = {}
+    pg.forEach(p => { cob[p.trabajo_id] = (cob[p.trabajo_id] || 0) + Number(p.monto) })
+    tr.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
+  }
+  return filas
+}
+const moverDiaStr = (f, n) => { const [y, m, d] = f.split('-').map(Number); const x = new Date(y, m - 1, d + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
+
+function PinVentas({ children }) {
+  const [ok, setOk] = useState(() => { try { return sessionStorage.getItem(VENTAS_KEY) === VENTAS_HASH } catch { return false } })
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState(false)
+  if (ok) return children
+  async function entrar(e) {
+    e.preventDefault()
+    const h = await sha256('alpha-cleaners-caja:' + pin.trim())
+    if (h === VENTAS_HASH) { try { sessionStorage.setItem(VENTAS_KEY, h) } catch { /* pedirá la clave de nuevo */ } setOk(true); return }
+    await new Promise(r => setTimeout(r, 1000))
+    setError(true); setPin('')
+  }
+  return (
+    <form onSubmit={entrar} className={`${glass} rounded-3xl p-8 max-w-sm mx-auto space-y-4 text-center`}>
+      <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center mx-auto"><Lock size={20} className="text-white" /></div>
+      <div><h2 className="font-bold text-lg">Ventas</h2><p className="text-sm text-slate-500">Ingresa la clave para ver las ventas</p></div>
+      <input type="password" inputMode="numeric" autoFocus value={pin} placeholder="Clave" onChange={e => { setPin(e.target.value); setError(false) }} className={`${inputCls} text-center tracking-[0.4em]`} />
+      {error && <p className="text-sm text-rose-600">Clave incorrecta</p>}
+      <button type="submit" disabled={!pin} className={`${btnPrimario} w-full py-3`}>Ver ventas</button>
+    </form>
+  )
+}
+
+function ResumenMes({ ym }) {
+  const [filas, setFilas] = useState(null)
+  const [error, setError] = useState(false)
+  const [abierto, setAbierto] = useState(null)
+  useEffect(() => {
+    let vivo = true
+    cargarVentas(`${ym}-01`, finMes(ym)).then(f => vivo && setFilas(f)).catch(() => vivo && setError(true))
+    return () => { vivo = false }
+  }, [ym])
+
+  if (error) return <div className={`${glass} rounded-3xl p-5 text-sm text-rose-600`}>No se pudieron cargar las ventas de {nombreMes(ym)}.</div>
+  if (!filas) return <div className={`${glass} rounded-3xl p-5 text-sm text-slate-500`}>Cargando {nombreMes(ym)}...</div>
+  const vendido = filas.reduce((a, f) => a + f.vendido, 0)
+  const cobrado = filas.reduce((a, f) => a + f.cobrado, 0)
+  const dias = Object.entries(filas.reduce((acc, f) => { (acc[f.fecha] ||= []).push(f); return acc }, {})).sort((a, b) => b[0].localeCompare(a[0]))
+  const antesDeCaja = ym < CAJA_DESDE.slice(0, 7)
+
+  return (
+    <section className={`${glass} rounded-3xl p-4 md:p-6 space-y-4`}>
+      <div>
+        <p className="text-xs font-semibold tracking-wide text-slate-400">{nombreMes(ym).toUpperCase()}</p>
+        <p className="text-3xl font-bold text-slate-900">{fmt(vendido)}</p>
+        <p className="text-xs text-slate-500">Ventas totales · {filas.length} trabajos</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Cobrado</p><p className="text-lg font-bold text-emerald-600">{fmt(cobrado)}</p></div>
+        <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Por cobrar</p><p className="text-lg font-bold text-amber-600">{fmt(Math.max(0, vendido - cobrado))}</p></div>
+      </div>
+      <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {ym === CAJA_DESDE.slice(0, 7) ? `Hasta el ${ddmm(moverDiaStr(CAJA_DESDE, -1))} vienen de Aquapp; desde el ${ddmm(CAJA_DESDE)}, de esta caja.` : antesDeCaja ? 'Datos de Aquapp.' : ''}</p>
+      <div className="space-y-1.5">
+        {dias.map(([fecha, fs]) => {
+          const v = fs.reduce((a, f) => a + f.vendido, 0)
+          const open = abierto === fecha
+          return (
+            <div key={fecha} className="rounded-2xl bg-white/60 border border-white/80">
+              <button onClick={() => setAbierto(open ? null : fecha)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left">
+                <span className="text-sm font-medium text-slate-700 w-16">{ddmm(fecha)}</span>
+                <span className="text-xs text-slate-400 flex-1">{fs.length} trabajos</span>
+                <span className="font-semibold text-slate-900">{fmt(v)}</span>
+                {open ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+              </button>
+              {open && (
+                <div className="px-3 pb-3 space-y-1 border-t border-slate-200/60 pt-2">
+                  {fs.map((f, i) => (
+                    <div key={i} className="flex gap-2 text-xs text-slate-600">
+                      <span className="flex-1 min-w-0 truncate">{f.cliente || 'Sin nombre'} · {f.patente || 's/patente'} · {f.servicio}</span>
+                      <span className="font-medium text-slate-800">{fmt(f.vendido)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function VistaVentas() {
+  return (
+    <PinVentas>
+      <div className="space-y-4">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 px-1">Ventas</h1>
+        <div className="grid lg:grid-cols-2 gap-4 items-start">
+          <ResumenMes ym={ymHoy()} />
+          <ResumenMes ym={ymAnterior()} />
+        </div>
+      </div>
+    </PinVentas>
   )
 }
 
@@ -976,6 +1134,7 @@ function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
 const NAV = [
   { key: 'trabajos', label: 'Trabajos', icon: ClipboardCheck },
   { key: 'caja', label: 'Caja', icon: ArrowUpDown },
+  { key: 'ventas', label: 'Ventas', icon: TrendingUp },
 ]
 
 function Caja() {
@@ -986,6 +1145,8 @@ function Caja() {
   const [pagos, setPagos] = useState([])
   const [gastos, setGastos] = useState([])
   const [propinas, setPropinas] = useState([])
+  const [anteriores, setAnteriores] = useState([])
+  const [pagosAnteriores, setPagosAnteriores] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [modal, setModal] = useState(null)   // { tipo: 'nuevo' | 'acciones' | 'cobro' | 'movimiento', trabajo }
@@ -993,12 +1154,20 @@ function Caja() {
 
   const cargarDia = useCallback(async () => {
     const hoy = hoyLocal()
-    const [t, p, g, pr] = await Promise.all([
+    const [t, p, g, pr, ant] = await Promise.all([
       supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('caja_pagos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('gastos').select('id, monto, proveedor, notas, metodo_pago, created_at, categorias_gasto(nombre)').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('caja_propinas').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
+      // Trabajos de días anteriores que siguen sin finalizar: deben poder cerrarse hoy
+      supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('estado', 'ingresado').eq('anulado', false).lt('fecha', hoy),
     ])
+    const antData = ant.data ?? []
+    setAnteriores(antData)
+    if (antData.length) {
+      const { data: pa } = await supabase.from('caja_pagos').select('*').in('trabajo_id', antData.map(x => x.id))
+      setPagosAnteriores(pa ?? [])
+    } else setPagosAnteriores([])
     if (t.error || p.error) setMsg({ ok: false, text: 'No se pudieron cargar los datos. Revisa la conexión.' })
     setTrabajos(t.data ?? [])
     setPagos(p.data ?? [])
@@ -1023,9 +1192,10 @@ function Caja() {
   useEffect(() => { const id = setInterval(cargarDia, 60000); return () => clearInterval(id) }, [cargarDia])
 
   function aviso(text, ok = true) { setMsg({ ok, text }); setTimeout(() => setMsg(null), 5000) }
-  const trabajoActual = modal?.trabajo ? trabajos.find(t => t.id === modal.trabajo.id) || modal.trabajo : null
-  const pendienteActual = trabajoActual ? Math.max(0, Number(trabajoActual.total) - cobradoDe(trabajoActual, pagos)) : 0
-  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagos).conDeuda, [trabajos, pagos])
+  const trabajoActual = modal?.trabajo ? [...trabajos, ...anteriores].find(t => t.id === modal.trabajo.id) || modal.trabajo : null
+  const todosPagos = useMemo(() => [...pagos, ...pagosAnteriores], [pagos, pagosAnteriores])
+  const pendienteActual = trabajoActual ? Math.max(0, Number(trabajoActual.total) - cobradoDe(trabajoActual, todosPagos)) : 0
+  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagos).conDeuda + anteriores.length, [trabajos, pagos, anteriores])
 
   return (
     <div className="min-h-screen relative text-slate-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif' }}>
@@ -1049,7 +1219,7 @@ function Caja() {
               </button>
             ))}
           </nav>
-          <p className="mt-auto text-[11px] text-slate-400 px-2">Caja {LOCAL_NOMBRE} · solo el día de hoy</p>
+          <p className="mt-auto text-[11px] text-slate-400 px-2">Caja {LOCAL_NOMBRE} · día de hoy y pendientes</p>
         </aside>
 
         <main className="flex-1 min-w-0 space-y-4 pb-28 md:pb-4">
@@ -1067,8 +1237,9 @@ function Caja() {
 
           <Aviso msg={msg} />
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
-            vista === 'trabajos'
-              ? <VistaTrabajos trabajos={trabajos} pagos={pagos} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} />
+            vista === 'ventas' ? <VistaVentas />
+            : vista === 'trabajos'
+              ? <VistaTrabajos trabajos={trabajos} pagos={pagos} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} />
               : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
           )}
         </main>
@@ -1083,7 +1254,7 @@ function Caja() {
               <Icon size={20} /> {label}
             </button>
           ))}
-          <button onClick={() => vista === 'caja' ? setModal({ tipo: 'movimiento' }) : setModal({ tipo: 'nuevo' })} className={`${btnPrimario} px-4 py-3 text-sm`}>
+          <button onClick={() => vista === 'caja' ? setModal({ tipo: 'movimiento' }) : setModal({ tipo: 'nuevo' })} className={`${btnPrimario} px-4 py-3 text-sm ${vista === 'ventas' ? 'hidden' : ''}`}>
             <Plus size={18} /> {vista === 'caja' ? 'Movimiento' : 'Nuevo trabajo'}
           </button>
         </div>
@@ -1094,7 +1265,7 @@ function Caja() {
           onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
-        <ModalAcciones trabajo={trabajoActual} pagos={pagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
+        <ModalAcciones trabajo={trabajoActual} pagos={todosPagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
