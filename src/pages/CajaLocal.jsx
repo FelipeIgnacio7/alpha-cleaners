@@ -1100,6 +1100,14 @@ function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
 
       <div className="space-y-4">
         <div className={`${glass} rounded-3xl p-5 space-y-2 text-sm`}>
+          <p className="font-semibold text-slate-900 flex items-center gap-2"><Gift size={16} className="text-violet-500" /> Propinas del día</p>
+          <p className="text-3xl font-bold text-violet-600">{fmt(r.propinas)}</p>
+          <p className="text-xs text-slate-400">{propinas.length === 0 ? 'Aún no hay propinas hoy' : `${propinas.length} ${propinas.length === 1 ? 'propina' : 'propinas'} · para repartir al equipo`}</p>
+          {MEDIOS.filter(m => r.propinasPorMedio[m.key] > 0).map(m => (
+            <div key={m.key} className="flex justify-between text-slate-600"><span>{m.label}</span><span className="font-semibold text-slate-800">{fmt(r.propinasPorMedio[m.key])}</span></div>
+          ))}
+        </div>
+        <div className={`${glass} rounded-3xl p-5 space-y-2 text-sm`}>
           <p className="font-semibold text-slate-900">Flujo de dinero</p>
           <div className="flex justify-between text-slate-600"><span>Ingresos de dinero</span><span className="text-emerald-600 font-semibold">{fmt(r.cobrado)}</span></div>
           <div className="flex justify-between text-slate-600"><span>Salidas de dinero</span><span className="text-rose-600 font-semibold">− {fmt(totalGastos)}</span></div>
