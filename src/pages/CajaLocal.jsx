@@ -162,7 +162,7 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
       const { error: ep } = await supabase.from('caja_propinas').insert({
         local_id: trabajo.local_id, trabajo_id: trabajo.id, fecha: hoyLocal(), monto: Number(propina), medio: medioPropina || medio,
       })
-      if (ep) { setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Regístrala desde el trabajo con "Registrar propina".') }
+      if (ep) { setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Avisa a la administración.') }
     }
     setSaving(false)
     onListo()
@@ -224,45 +224,6 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   )
 }
 
-// ---------- Propina suelta o de un trabajo ya cobrado ----------
-function ModalPropina({ trabajo, onListo, onCerrar }) {
-  const [monto, setMonto] = useState('')
-  const [medio, setMedio] = useState('efectivo')
-  const [notas, setNotas] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
-
-  async function guardar() {
-    if (!Number(monto) || Number(monto) <= 0) return setError('Ingresa el monto de la propina.')
-    setSaving(true)
-    const { error: e } = await supabase.from('caja_propinas').insert({
-      local_id: LOCAL_FONTOVA, trabajo_id: trabajo?.id ?? null, fecha: hoyLocal(), monto: Number(monto), medio, notas: notas.trim() || null,
-    })
-    setSaving(false)
-    if (e) return setError('No se pudo guardar la propina. Revisa la conexión.')
-    onListo()
-  }
-
-  return (
-    <Modal titulo="Registrar propina" subtitulo={trabajo ? <ChipTrabajo t={trabajo} /> : <p className="text-xs text-slate-500 mt-0.5">Propina sin trabajo asociado</p>} onCerrar={onCerrar}
-      footer={<>
-        <button onClick={onCerrar} className={`${btnSecundario} px-5 py-2.5`}>Cerrar</button>
-        <button onClick={guardar} disabled={saving} className={`${btnPrimario} px-5 py-2.5`}>{saving ? 'Guardando...' : 'Guardar propina'}</button>
-      </>}>
-      <p className="text-xs text-slate-500">Las propinas son del equipo: no suman a las ventas ni a los ingresos del negocio.</p>
-      <div><label className={labelCls}>Monto *</label><input type="number" inputMode="numeric" autoFocus value={monto} onChange={e => { setMonto(e.target.value); setError(null) }} className={inputCls} /></div>
-      <div>
-        <label className={labelCls}>¿Cómo la pagó?</label>
-        <div className="grid grid-cols-2 gap-2">
-          {MEDIOS.map(m => <button key={m.key} type="button" onClick={() => setMedio(m.key)} className={chip(medio === m.key)}>{m.label}</button>)}
-        </div>
-      </div>
-      <div><label className={labelCls}>Notas</label><input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Opcional" className={inputCls} /></div>
-      {error && <p className="text-sm text-rose-600">{error}</p>}
-    </Modal>
-  )
-}
-
 // ---------- Aviso al cliente: "tu auto está listo" (envío manual por WhatsApp, como en Aquapp) ----------
 const KEY_AVISADOS = 'alpha:avisados'
 const leerAvisados = () => { try { return JSON.parse(localStorage.getItem(KEY_AVISADOS) || '[]') } catch { return [] } }
@@ -279,7 +240,7 @@ const mensajeListo = (trabajo) =>
   `Hola ${nombreParaSaludo(trabajo.cliente) || ''}`.trim() + ' 👋\n\nTu auto ya está listo en Alpha Cleaners 🚗✨ Puedes pasar a retirarlo.\n\n📍 ' + LOCAL_DIRECCION + ', Huechuraba\n\n¡Gracias por preferirnos!'
 
 // ---------- Acciones de un trabajo (como el menú de Aquapp) ----------
-function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobrar, onPropina, onCambio, onCerrar }) {
+function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobrar, onCambio, onCerrar }) {
   const cobrado = cobradoDe(trabajo, pagos)
   // Edición de servicios y precios del trabajo ya creado (sin borrarlo y volver a ingresarlo)
   const [editando, setEditando] = useState(false)
@@ -423,7 +384,6 @@ function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobr
       <div className="space-y-0.5">
         <Opcion icon={Pencil} label="Editar servicios y precios" onClick={empezarEdicion} />
         <Opcion icon={DollarSign} label="Registrar cobro" onClick={onCobrar} deshabilitado={pendiente <= 0} nota={pendiente <= 0 ? 'Pagado' : fmt(pendiente)} />
-        <Opcion icon={Gift} label="Registrar propina" onClick={onPropina} />
         <Opcion icon={Flag} label="Finalizar" deshabilitado={trabajo.estado !== 'ingresado'} nota={trabajo.estado !== 'ingresado' ? 'Listo' : ''}
           onClick={() => actualizar({ estado: 'finalizado', finalizado_at: new Date().toISOString() }, { cerrar: false })} />
         <Opcion icon={MessageCircle} label="Avisar al cliente que está listo" deshabilitado={!telWa}
@@ -894,7 +854,7 @@ function ModalMovimiento({ onGuardado, onCerrar }) {
   )
 }
 
-function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento, onPropina }) {
+function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
   const gastosEfectivo = gastos.filter(g => g.metodo_pago === 'efectivo').reduce((a, g) => a + Number(g.monto), 0)
   const totalGastos = gastos.reduce((a, g) => a + Number(g.monto), 0)
   const r = resumenDia(trabajos, pagos, gastosEfectivo, propinas)
@@ -937,10 +897,7 @@ function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento, onPro
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">Caja</h1>
             <p className="text-xs text-slate-400 mt-0.5">Movimientos de hoy ({movimientos.length})</p>
           </div>
-          <div className="hidden md:flex gap-2">
-            <button onClick={onPropina} className={`${btnSecundario} px-4 py-2.5`}><Gift size={16} /> Propina</button>
-            <button onClick={onNuevoMovimiento} className={`${btnPrimario} px-5 py-2.5`}><Plus size={18} /> Nuevo movimiento</button>
-          </div>
+          <button onClick={onNuevoMovimiento} className={`${btnPrimario} hidden md:inline-flex px-5 py-2.5`}><Plus size={18} /> Nuevo movimiento</button>
         </div>
         <div className="inline-flex items-center gap-2 rounded-xl bg-white/70 border border-slate-200/80 px-3 py-2 mb-4 text-sky-600 font-medium">
           <CalendarDays size={16} /> {fechaLarga()}
@@ -1112,7 +1069,7 @@ function Caja() {
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
             vista === 'trabajos'
               ? <VistaTrabajos trabajos={trabajos} pagos={pagos} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} />
-              : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} onPropina={() => setModal({ tipo: 'propina' })} />
+              : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
           )}
         </main>
       </div>
@@ -1137,16 +1094,12 @@ function Caja() {
           onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
-        <ModalAcciones trabajo={trabajoActual} pagos={pagos} propinas={propinas} onPropina={() => setModal({ tipo: 'propina', trabajo: trabajoActual })} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
+        <ModalAcciones trabajo={trabajoActual} pagos={pagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
         <ModalCobro trabajo={trabajoActual} pendiente={pendienteActual} onCerrar={() => setModal(null)}
           onListo={() => { setModal(null); aviso('Cobro registrado.'); cargarDia() }} />
-      )}
-      {modal?.tipo === 'propina' && (
-        <ModalPropina trabajo={modal.trabajo ? (trabajos.find(t => t.id === modal.trabajo.id) || modal.trabajo) : null} onCerrar={() => setModal(null)}
-          onListo={() => { setModal(null); aviso('Propina registrada.'); cargarDia() }} />
       )}
       {modal?.tipo === 'movimiento' && (
         <ModalMovimiento onCerrar={() => setModal(null)} onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
