@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Droplets, Lock, Plus, Search, X, CheckCircle2, AlertTriangle, ClipboardCheck, ArrowUpDown, Crown,
@@ -34,8 +35,8 @@ async function sha256(texto) {
 }
 
 // ---------- Estilo liquid glass ----------
-const glass = 'bg-white/55 backdrop-blur-2xl backdrop-saturate-150 border border-white/70 shadow-[0_8px_32px_rgba(15,23,42,0.08)]'
-const glassFuerte = 'bg-white/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.18)]'
+const glass = 'bg-white/55 backdrop-blur-lg border border-white/70 shadow-[0_8px_32px_rgba(15,23,42,0.08)]'
+const glassFuerte = 'bg-white/80 backdrop-blur-lg border border-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.18)]'
 const btnPrimario = 'inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-[#3d9bff] to-[#0a6cff] text-white font-semibold shadow-lg shadow-blue-500/30 hover:brightness-105 active:scale-[0.98] transition disabled:opacity-50'
 const btnSecundario = 'inline-flex items-center justify-center gap-2 rounded-full bg-white/70 border border-slate-200/80 text-slate-700 font-medium hover:bg-white active:scale-[0.98] transition'
 const inputCls = 'w-full bg-white/70 border border-slate-200/80 text-slate-900 placeholder:text-slate-400 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-sky-400/60'
@@ -58,7 +59,7 @@ const ICONO_MEDIO = { credito: CreditCard, debito: CreditCard, efectivo: Banknot
 const nombreMedio = (k) => MEDIOS.find(m => m.key === k)?.label ?? k
 
 function Modal({ titulo, subtitulo, onCerrar, children, footer, ancho = 'max-w-lg' }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/25 backdrop-blur-sm p-0 sm:p-4" onClick={onCerrar}>
       <div className={`${glassFuerte} w-full ${ancho} rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col`} onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
@@ -71,7 +72,8 @@ function Modal({ titulo, subtitulo, onCerrar, children, footer, ancho = 'max-w-l
         <div className="px-5 pb-4 overflow-y-auto space-y-4">{children}</div>
         {footer && <div className="px-5 py-4 border-t border-slate-200/70 flex justify-end gap-2">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -245,7 +247,7 @@ const mensajeListo = (trabajo) =>
   `Hola ${nombreParaSaludo(trabajo.cliente) || ''}`.trim() + ' 👋\n\nTu auto ya está listo en Alpha Cleaners 🚗✨ Puedes pasar a retirarlo.\n\n📍 ' + LOCAL_DIRECCION + ', Huechuraba\n\n¡Gracias por preferirnos!'
 
 // ---------- Acciones de un trabajo (como el menú de Aquapp) ----------
-function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobrar, onCambio, onCerrar }) {
+function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobrar, onCambio, onLocal, onCerrar }) {
   const cobrado = cobradoDe(trabajo, pagos)
   // Edición de servicios y precios del trabajo ya creado (sin borrarlo y volver a ingresarlo)
   const [editando, setEditando] = useState(false)
@@ -299,9 +301,11 @@ function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobr
   const yaAvisado = avisados.includes(trabajo.id)
 
   async function actualizar(campos, { cerrar = true } = {}) {
+    onLocal(trabajo.id, campos)          // se ve al instante; la base se actualiza en segundo plano
+    if (cerrar) onCerrar()
     const { error } = await supabase.from('caja_trabajos').update(campos).eq('id', trabajo.id)
     if (error) alert('No se pudo guardar. Revisa la conexión.')
-    onCambio(); if (cerrar) onCerrar()
+    onCambio()
   }
   function avisarListo() {
     window.open(`https://wa.me/${telWa}?text=${encodeURIComponent(mensajeListo(trabajo))}`, '_blank', 'noopener')
@@ -1174,8 +1178,7 @@ function Caja() {
     const antData = ant.data ?? []
     setAnteriores(antData)
     if (antData.length) {
-      const { data: pa } = await supabase.from('caja_pagos').select('*').in('trabajo_id', antData.map(x => x.id))
-      setPagosAnteriores(pa ?? [])
+      supabase.from('caja_pagos').select('*').in('trabajo_id', antData.map(x => x.id)).then(({ data: pa }) => setPagosAnteriores(pa ?? []))
     } else setPagosAnteriores([])
     if (t.error || p.error) setMsg({ ok: false, text: 'No se pudieron cargar los datos. Revisa la conexión.' })
     setTrabajos(t.data ?? [])
@@ -1200,6 +1203,12 @@ function Caja() {
   // Refresca cada minuto por si hay otro dispositivo registrando (computador y celular a la vez)
   useEffect(() => { const id = setInterval(cargarDia, 60000); return () => clearInterval(id) }, [cargarDia])
 
+  // Cambio inmediato en pantalla (antes de que la base responda)
+  function aplicarLocal(id, campos) {
+    const mapa = (lista) => lista.map(t => t.id === id ? { ...t, ...campos } : t)
+    setTrabajos(mapa); setAnteriores(mapa)
+    setModal(m => m?.trabajo?.id === id ? { ...m, trabajo: { ...m.trabajo, ...campos } } : m)
+  }
   function aviso(text, ok = true) { setMsg({ ok, text }); setTimeout(() => setMsg(null), 5000) }
   const trabajoActual = modal?.trabajo ? [...trabajos, ...anteriores].find(t => t.id === modal.trabajo.id) || modal.trabajo : null
   const todosPagos = useMemo(() => [...pagos, ...pagosAnteriores], [pagos, pagosAnteriores])
@@ -1274,7 +1283,7 @@ function Caja() {
           onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
-        <ModalAcciones trabajo={trabajoActual} pagos={todosPagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onCerrar={() => setModal(null)}
+        <ModalAcciones trabajo={trabajoActual} pagos={todosPagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onLocal={aplicarLocal} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
