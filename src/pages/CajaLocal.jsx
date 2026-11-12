@@ -469,6 +469,7 @@ function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda,
   const visibles = trabajos.filter(t => !t.anulado)
     .filter(t => !q || [t.cliente, t.patente, t.marca, t.modelo].some(v => (v || '').toLowerCase().includes(q)))
     .sort((a, b) => (b.hora || '').localeCompare(a.hora || ''))
+  const [verPend, setVerPend] = useState(false)
   const r = resumenDia(trabajos, pagos)
   const pendAnt = anteriores.filter(t => !t.anulado)
     .filter(t => !q || [t.cliente, t.patente, t.marca, t.modelo].some(v => (v || '').toLowerCase().includes(q)))
@@ -488,16 +489,24 @@ function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda,
           <CalendarDays size={16} /> {fechaLarga()}
         </div>
         {pendAnt.length > 0 && (
-          <div className="mb-5 rounded-2xl border border-amber-300/70 bg-amber-50/70 p-3 space-y-2">
-            <p className="text-sm font-semibold text-amber-800 flex items-center gap-1.5"><Flag size={15} /> Sin finalizar de días anteriores ({pendAnt.length})</p>
-            <p className="text-xs text-amber-700">Toca el trabajo para finalizarlo, cobrarlo o entregarlo.</p>
+          <button onClick={() => setVerPend(true)}
+            className="w-full mb-5 flex items-center gap-2 rounded-2xl border border-amber-300/70 bg-amber-50/70 hover:bg-amber-50 px-4 py-3 text-left transition">
+            <Flag size={16} className="text-amber-700 shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-amber-800">Servicios sin terminar de días anteriores</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">{pendAnt.length}</span>
+            <ChevronDown size={16} className="text-amber-700" />
+          </button>
+        )}
+        {verPend && (
+          <Modal titulo="Sin terminar de días anteriores" onCerrar={() => setVerPend(false)}
+            subtitulo={<p className="text-xs text-slate-500 mt-0.5">Toca un trabajo para finalizarlo, cobrarlo o entregarlo.</p>}>
             {pendAnt.map(t => (
               <div key={t.id}>
                 <p className="text-[11px] text-amber-700 ml-1 mb-0.5">Ingresó el {ddmm(t.fecha)}</p>
-                <FilaTrabajo t={t} pagos={pagosAnteriores} onClick={() => onAbrir(t)} />
+                <FilaTrabajo t={t} pagos={pagosAnteriores} onClick={() => { setVerPend(false); onAbrir(t) }} />
               </div>
             ))}
-          </div>
+          </Modal>
         )}
         <div className="space-y-2">
           {visibles.length === 0 && (
