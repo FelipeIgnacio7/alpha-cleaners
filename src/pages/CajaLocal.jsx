@@ -139,16 +139,20 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   const [medio, setMedio] = useState(null)
   const [monto, setMonto] = useState(String(pendiente))
   const [conRecargo, setConRecargo] = useState(true)
-  const [propina, setPropina] = useState('')
+  const [propinaManual, setPropinaManual] = useState(null)   // null = automática (lo que sobra del monto recibido)
   const [medioPropina, setMedioPropina] = useState(null)   // null = el mismo medio del cobro
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const recargo = medio === 'credito' && conRecargo ? Math.round((Number(monto) || 0) * RECARGO_CREDITO) : 0
+  const recibido = Number(monto) || 0
+  const abono = Math.min(recibido, pendiente)
+  // Si el cliente paga más que lo pendiente, la diferencia es propina para el equipo
+  const propinaAuto = Math.max(0, recibido - pendiente)
+  const propina = propinaManual ?? String(propinaAuto || '')
+  const recargo = medio === 'credito' && conRecargo ? Math.round(abono * RECARGO_CREDITO) : 0
 
   async function registrar() {
-    const m = Number(monto)
+    const m = abono
     if (!m || m <= 0) return setError('Ingresa el monto.')
-    if (m > pendiente) return setError(`El máximo pendiente es ${fmt(pendiente)}.`)
     setSaving(true)
     const { error: e } = await supabase.from('caja_pagos').insert({
       trabajo_id: trabajo.id, local_id: trabajo.local_id, fecha: hoyLocal(), monto: m, medio, recargo,
@@ -168,7 +172,7 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
     <Modal titulo="Registrar cobro" subtitulo={<ChipTrabajo t={trabajo} />} onCerrar={onCerrar}
       footer={medio && <>
         <button onClick={() => setMedio(null)} className={`${btnSecundario} px-4 py-2.5`}><ChevronLeft size={16} /> Volver</button>
-        <button onClick={registrar} disabled={saving} className={`${btnPrimario} px-5 py-2.5`}>{saving ? 'Registrando...' : `Registrar ${fmt((Number(monto) || 0) + recargo)}`}</button>
+        <button onClick={registrar} disabled={saving} className={`${btnPrimario} px-5 py-2.5`}>{saving ? 'Registrando...' : `Registrar ${fmt(abono + recargo + (Number(propina) || 0))}`}</button>
       </>}>
       {!medio ? (
         <>
@@ -191,19 +195,19 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
         <>
           <p className="text-sm text-slate-500">Billetera: <span className="font-semibold text-slate-800">{nombreMedio(medio)}</span></p>
           <div>
-            <label className={labelCls}>Monto que abona al trabajo</label>
-            <input type="number" inputMode="numeric" value={monto} onChange={e => { setMonto(e.target.value); setError(null) }} className={inputCls} />
-            <p className="text-xs text-slate-400 mt-1">Si paga una parte, escribe solo lo que pagó; el resto queda pendiente.</p>
+            <label className={labelCls}>Monto que paga el cliente</label>
+            <input type="number" inputMode="numeric" value={monto} onChange={e => { setMonto(e.target.value); setPropinaManual(null); setError(null) }} className={inputCls} />
+            <p className="text-xs text-slate-400 mt-1">Pendiente {fmt(pendiente)}. Si paga menos, el resto queda pendiente; si paga más, la diferencia se registra como propina del equipo.</p>
           </div>
           {medio === 'credito' && (
             <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
               <input type="checkbox" checked={conRecargo} onChange={e => setConRecargo(e.target.checked)} className="w-4 h-4" />
-              Recargo {Math.round(RECARGO_CREDITO * 100)}% tarjeta de crédito (+{fmt(Math.round((Number(monto) || 0) * RECARGO_CREDITO))})
+              Recargo {Math.round(RECARGO_CREDITO * 100)}% tarjeta de crédito (+{fmt(Math.round(abono * RECARGO_CREDITO))})
             </label>
           )}
           <div className="rounded-2xl bg-white/60 border border-slate-200/70 p-3 space-y-2">
-            <label className={labelCls}>Propina para el equipo (opcional)</label>
-            <input type="number" inputMode="numeric" value={propina} onChange={e => setPropina(e.target.value)} placeholder="ej: 2000" className={inputCls} />
+            <label className={labelCls}>Propina para el equipo{propinaAuto > 0 && propinaManual === null ? ' (calculada)' : ' (opcional)'}</label>
+            <input type="number" inputMode="numeric" value={propina} onChange={e => setPropinaManual(e.target.value)} placeholder="ej: 2000" className={inputCls} />
             {Number(propina) > 0 && (
               <div>
                 <p className="text-xs text-slate-500 mb-1.5">¿Cómo pagó la propina?</p>
