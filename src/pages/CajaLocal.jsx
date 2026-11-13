@@ -157,19 +157,29 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   const propina = propinaManual ?? String(propinaAuto || '')
   const recargo = medio === 'credito' && conRecargo ? Math.round(abono * RECARGO_CREDITO) : 0
 
+  const enviando = useRef(false)   // candado contra doble toque (el estado tarda en actualizarse)
   async function registrar() {
+    if (enviando.current) return
     const m = abono
     if (!m || m <= 0) return setError('Ingresa el monto.')
+    enviando.current = true
     setSaving(true)
+    // Revalida contra la base: si otro toque o dispositivo ya cobró, no se cobra dos veces
+    const { data: yaPagos } = await supabase.from('caja_pagos').select('monto').eq('trabajo_id', trabajo.id)
+    const yaCobrado = (yaPagos ?? []).reduce((a, x) => a + Number(x.monto), 0)
+    if (Number(trabajo.total) - yaCobrado < m - 0.5) {
+      enviando.current = false; setSaving(false)
+      return setError(Number(trabajo.total) - yaCobrado <= 0.5 ? 'Este trabajo ya está pagado. Cierra esta ventana y actualiza.' : `Solo quedan ${fmt(Number(trabajo.total) - yaCobrado)} por cobrar. Actualiza y reintenta.`)
+    }
     const { error: e } = await supabase.from('caja_pagos').insert({
       trabajo_id: trabajo.id, local_id: trabajo.local_id, fecha: hoyLocal(), monto: m, medio, recargo,
     })
-    if (e) { setSaving(false); return setError('No se pudo registrar el cobro. Revisa la conexión.') }
+    if (e) { enviando.current = false; setSaving(false); return setError('No se pudo registrar el cobro. Revisa la conexión.') }
     if (Number(propina) > 0) {
       const { error: ep } = await supabase.from('caja_propinas').insert({
         local_id: trabajo.local_id, trabajo_id: trabajo.id, fecha: hoyLocal(), monto: Number(propina), medio: medioPropina || medio,
       })
-      if (ep) { setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Avisa a la administración.') }
+      if (ep) { enviando.current = false; setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Avisa a la administración.') }
     }
     setSaving(false)
     onListo()
