@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase'
 import { nombreParaSaludo } from '../lib/reactivacion'
 import {
   LOCAL_FONTOVA, TAMANOS, MEDIOS, fmt, hoyLocal, horaLocal, normalizePatente, nombreServicio,
-  precioServicio, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente, tipoUsoMembresia,
+  precioServicio, patronPatente, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente, tipoUsoMembresia,
   RECARGO_CREDITO,
 } from '../lib/caja'
 
@@ -660,11 +660,124 @@ function ResumenMes({ ym }) {
   )
 }
 
+// ---------- Historial de un cliente (por nombre o patente): servicios por semana / mes ----------
+const lunesDe = (f) => { const [y, m, d] = f.split('-').map(Number); const x = new Date(y, m - 1, d); const dow = (x.getDay() + 6) % 7; return moverDiaStr(f, -dow) }
+
+async function buscarHistorial(texto) {
+  const q = texto.trim().replace(/[%,()]/g, ' ')
+  const norm = normalizePatente(q)
+  const filtros = [`cliente.ilike.%${q}%`]
+  if (norm.length >= 4) filtros.push(`patente.ilike.%${patronPatente(norm)}%`)
+  const [aq, tr, diasCaja] = await Promise.all([
+    traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, marca, modelo, servicios, monto, descuento, es_membresia')
+      .eq('local_id', LOCAL_FONTOVA).or(filtros.join(',')).order('id')),
+    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, marca, modelo, items, total, anulado')
+      .eq('local_id', LOCAL_FONTOVA).eq('anulado', false).or(filtros.join(',')).order('created_at')),
+    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha').eq('local_id', LOCAL_FONTOVA).eq('anulado', false).gte('fecha', CAJA_DESDE).order('id')),
+  ])
+  const dias = new Set(diasCaja.map(d => d.fecha))
+  const filas = [
+    ...aq.filter(r => !dias.has(r.fecha)).map(r => ({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, vehiculo: [r.marca, r.modelo].filter(Boolean).join(' '), servicio: r.servicios, monto: Number(r.monto) - Number(r.descuento || 0), membresia: r.es_membresia })),
+    ...tr.map(t => ({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, vehiculo: [t.marca, t.modelo].filter(Boolean).join(' '), servicio: (t.items || []).map(i => i.nombre).join(' | '), monto: Number(t.total), membresia: (t.items || []).some(i => i.es_membresia) })),
+  ]
+  // Un "cliente" = patente (si tiene) o nombre
+  const grupos = {}
+  filas.forEach(f => { const k = normalizePatente(f.patente) || (f.cliente || '').toLowerCase(); (grupos[k] ||= []).push(f) })
+  return Object.values(grupos).map(fs => fs.sort((a, b) => b.fecha.localeCompare(a.fecha))).sort((a, b) => b[0].fecha.localeCompare(a[0].fecha))
+}
+
+function BuscadorCliente() {
+  const [texto, setTexto] = useState('')
+  const [grupos, setGrupos] = useState(null)
+  const [cargando, setCargando] = useState(false)
+  const [sel, setSel] = useState(null)
+  const [por, setPor] = useState('semana')
+
+  useEffect(() => {
+    setSel(null)
+    if (texto.trim().length < 3) { setGrupos(null); return }
+    setCargando(true)
+    let vivo = true
+    const id = setTimeout(() => {
+      buscarHistorial(texto).then(g => vivo && setGrupos(g)).catch(() => vivo && setGrupos([])).finally(() => vivo && setCargando(false))
+    }, 400)
+    return () => { vivo = false; clearTimeout(id) }
+  }, [texto])
+
+  const hist = sel !== null && grupos ? grupos[sel] : null
+  const periodos = useMemo(() => {
+    if (!hist) return []
+    const m = {}
+    hist.forEach(f => {
+      const k = por === 'semana' ? lunesDe(f.fecha) : f.fecha.slice(0, 7)
+      ;(m[k] ||= []).push(f)
+    })
+    return Object.entries(m).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [hist, por])
+
+  return (
+    <section className={`${glass} rounded-3xl p-4 md:p-6 space-y-3`}>
+      <p className="font-semibold text-slate-900 flex items-center gap-2"><Search size={16} /> Buscar cliente</p>
+      <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Nombre o patente (mín. 3 letras)" className={inputCls} />
+      {cargando && <p className="text-xs text-slate-500">Buscando...</p>}
+      {grupos && !cargando && grupos.length === 0 && <p className="text-sm text-slate-500">No hay servicios para esa búsqueda.</p>}
+      {grupos && sel === null && grupos.length > 0 && (
+        <div className="space-y-1.5">
+          {grupos.slice(0, 30).map((g, i) => (
+            <button key={i} onClick={() => setSel(i)} className="w-full text-left rounded-2xl bg-white/70 border border-white/80 hover:bg-white px-3 py-2.5 flex items-center gap-3">
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-slate-800 truncate">{g[0].cliente || 'Sin nombre'}</span>
+                <span className="block text-xs text-slate-500 truncate">{g[0].patente || 's/patente'} · {g[0].vehiculo || '—'} · última visita {ddmm(g[0].fecha)}</span>
+              </span>
+              <span className="text-xs text-slate-500">{g.length} serv.</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {hist && (
+        <div className="space-y-3">
+          <button onClick={() => setSel(null)} className="text-xs text-sky-600 flex items-center gap-1"><ChevronLeft size={14} /> Volver a los resultados</button>
+          <div>
+            <p className="font-bold text-slate-900">{hist[0].cliente || 'Sin nombre'}</p>
+            <p className="text-xs text-slate-500">{hist[0].patente || 's/patente'} · {hist[0].vehiculo || '—'}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-2xl bg-white/70 p-2"><p className="text-lg font-bold">{hist.length}</p><p className="text-[11px] text-slate-500">servicios</p></div>
+            <div className="rounded-2xl bg-white/70 p-2"><p className="text-lg font-bold">{fmt(hist.reduce((a, f) => a + f.monto, 0))}</p><p className="text-[11px] text-slate-500">gastado</p></div>
+            <div className="rounded-2xl bg-white/70 p-2"><p className="text-lg font-bold">{ddmm(hist[0].fecha)}</p><p className="text-[11px] text-slate-500">última visita</p></div>
+          </div>
+          <div className="flex gap-2">
+            {['semana', 'mes'].map(k => <button key={k} onClick={() => setPor(k)} className={chip(por === k)}>Por {k}</button>)}
+          </div>
+          <div className="space-y-1.5">
+            {periodos.map(([k, fs]) => (
+              <div key={k} className="rounded-2xl bg-white/60 border border-white/80 px-3 py-2.5">
+                <div className="flex justify-between text-sm font-semibold text-slate-800">
+                  <span>{por === 'semana' ? `Semana del ${ddmm(k)}` : nombreMes(k)} · {fs.length} {fs.length === 1 ? 'servicio' : 'servicios'}</span>
+                  <span>{fmt(fs.reduce((a, f) => a + f.monto, 0))}</span>
+                </div>
+                {fs.map((f, i) => (
+                  <div key={i} className="flex gap-2 text-xs text-slate-600 mt-1">
+                    <span className="w-12 shrink-0">{ddmm(f.fecha)}</span>
+                    <span className="flex-1 min-w-0 truncate">{f.servicio}{f.membresia ? ' · membresía' : ''}</span>
+                    <span className="font-medium text-slate-800">{fmt(f.monto)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function VistaVentas() {
   return (
     <PinVentas>
       <div className="space-y-4">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 px-1">Ventas</h1>
+        <BuscadorCliente />
         <div className="grid lg:grid-cols-2 gap-4 items-start">
           <ResumenMes ym={ymHoy()} />
           <ResumenMes ym={ymAnterior()} />
