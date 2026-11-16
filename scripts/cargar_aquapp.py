@@ -98,7 +98,7 @@ def cargar_caja(path):
     desde, hasta = min(v['fecha'] for v in ventas), max(v['fecha'] for v in ventas)
     key = lambda f, l, p, m, t, c: (f, l, p or '', float(m), t or '', c or '')
     existentes = fetch_all('transacciones_lavado', 'fecha,local_id,patente,monto,tipo_servicio,cliente:webhook_raw->>cliente',
-                           f'fecha=gte.{desde}&fecha=lte.{hasta}')
+                           f'fecha=gte.{desde}&fecha=lte.{hasta}&caja_trabajo_id=is.null')   # sin las ventas de la caja propia (/local)
     tiene = collections.Counter(key(r['fecha'], r['local_id'], r['patente'], r['monto'], r['tipo_servicio'], r['cliente']) for r in existentes)
     vistas, nuevas = collections.Counter(), []
     for v in ventas:
@@ -112,7 +112,7 @@ def cargar_caja(path):
         nuevas.append(v)
     for i in range(0, len(nuevas), 200):
         api('POST', 'transacciones_lavado', nuevas[i:i + 200], prefer='return=minimal')
-    despues = fetch_all('transacciones_lavado', 'monto', f'fecha=gte.{desde}&fecha=lte.{hasta}')
+    despues = fetch_all('transacciones_lavado', 'monto', f'fecha=gte.{desde}&fecha=lte.{hasta}&caja_trabajo_id=is.null')
     print(f'[caja] {os.path.basename(path)} ({desde} a {hasta})')
     print(f'       archivo: {len(ventas)} ventas, ${int(sum(v["monto"] for v in ventas)):,} | sin parsear: {sin_parsear}')
     print(f'       agregadas ahora: {len(nuevas)} (${int(sum(v["monto"] for v in nuevas)):,})')

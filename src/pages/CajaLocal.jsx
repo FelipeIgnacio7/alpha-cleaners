@@ -557,23 +557,23 @@ async function traerTodo(consulta) {
   return out
 }
 
-// Unifica Aquapp (antes de CAJA_DESDE) y la caja propia (desde CAJA_DESDE) en filas { fecha, cliente, patente, servicio, vendido, cobrado }
+// Unifica Aquapp y la caja propia en filas { fecha, cliente, patente, servicio, vendido, cobrado }.
+// Cada día se toma de la caja propia si ese día se usó el link; si no (ej. fines de semana), de lo cargado desde Aquapp.
 async function cargarVentas(desde, hasta) {
   const filas = []
-  if (desde < CAJA_DESDE) {
-    const aq = await traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, servicios, monto, descuento, cobrado')
-      .eq('local_id', LOCAL_FONTOVA).gte('fecha', desde).lte('fecha', hasta < CAJA_DESDE ? hasta : moverDiaStr(CAJA_DESDE, -1)).order('id'))
-    aq.forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
-  }
+  const aq = await traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, servicios, monto, descuento, cobrado')
+    .eq('local_id', LOCAL_FONTOVA).gte('fecha', desde).lte('fecha', hasta).order('id'))
+  let tr = [], cob = {}
   if (hasta >= CAJA_DESDE) {
     const d2 = desde > CAJA_DESDE ? desde : CAJA_DESDE
-    const tr = await traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, items, total, anulado')
+    tr = await traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, items, total, anulado')
       .eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).eq('anulado', false).order('created_at'))
     const pg = await traerTodo(() => supabase.from('caja_pagos').select('id, trabajo_id, monto').eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).order('id'))
-    const cob = {}
     pg.forEach(p => { cob[p.trabajo_id] = (cob[p.trabajo_id] || 0) + Number(p.monto) })
-    tr.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
   }
+  const diasCaja = new Set(tr.map(t => t.fecha))
+  aq.filter(r => !diasCaja.has(r.fecha)).forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
+  tr.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
   return filas
 }
 const moverDiaStr = (f, n) => { const [y, m, d] = f.split('-').map(Number); const x = new Date(y, m - 1, d + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
@@ -629,7 +629,7 @@ function ResumenMes({ ym }) {
         <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Cobrado</p><p className="text-lg font-bold text-emerald-600">{fmt(cobrado)}</p></div>
         <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Por cobrar</p><p className="text-lg font-bold text-amber-600">{fmt(Math.max(0, vendido - cobrado))}</p></div>
       </div>
-      <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {ym === CAJA_DESDE.slice(0, 7) ? `Hasta el ${ddmm(moverDiaStr(CAJA_DESDE, -1))} vienen de Aquapp; desde el ${ddmm(CAJA_DESDE)}, de esta caja.` : antesDeCaja ? 'Datos de Aquapp.' : ''}</p>
+      <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {ym === CAJA_DESDE.slice(0, 7) ? `Los días que se usó este link salen de esta caja; los demás, de Aquapp.` : antesDeCaja ? 'Datos de Aquapp.' : ''}</p>
       <div className="space-y-1.5">
         {dias.map(([fecha, fs]) => {
           const v = fs.reduce((a, f) => a + f.vendido, 0)
