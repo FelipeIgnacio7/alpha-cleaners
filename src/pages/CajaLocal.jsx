@@ -478,7 +478,7 @@ function Resumen({ r }) {
   )
 }
 
-function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda, onNuevo, onAbrir }) {
+function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda, onNuevo, onAbrir, onHistorial }) {
   const q = busqueda.trim().toLowerCase()
   const visibles = trabajos.filter(t => !t.anulado)
     .filter(t => !q || [t.cliente, t.patente, t.marca, t.modelo].some(v => (v || '').toLowerCase().includes(q)))
@@ -502,6 +502,14 @@ function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda,
         <div className="inline-flex items-center gap-2 rounded-xl bg-white/70 border border-slate-200/80 px-3 py-2 mb-4 text-sky-600 font-medium">
           <CalendarDays size={16} /> {fechaLarga()}
         </div>
+        {q.length >= 3 && (
+          <button onClick={onHistorial}
+            className="w-full mb-4 flex items-center gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/80 hover:bg-sky-50 px-4 py-3 text-left transition">
+            <Search size={16} className="text-sky-700 shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-sky-800">Ver historial y servicios de «{busqueda.trim()}» (semanas, meses, totales)</span>
+            <Lock size={14} className="text-sky-700" />
+          </button>
+        )}
         {pendAnt.length > 0 && (
           <button onClick={() => setVerPend(true)}
             className="w-full mb-5 flex items-center gap-2 rounded-2xl border border-amber-300/70 bg-amber-50/70 hover:bg-amber-50 px-4 py-3 text-left transition">
@@ -601,7 +609,7 @@ function PinVentas({ children }) {
   )
 }
 
-const claveCliente = (f) => normalizePatente(f.patente) || (f.cliente || '').toLowerCase()
+const claveCliente = (f) => (f.cliente || '').trim().toLowerCase() || normalizePatente(f.patente)
 
 function ResumenMes({ ym, cliente }) {
   const [filas, setFilas] = useState(null)
@@ -687,12 +695,20 @@ async function buscarHistorial(texto) {
   ]
   // Un "cliente" = patente (si tiene) o nombre
   const grupos = {}
-  filas.forEach(f => { const k = normalizePatente(f.patente) || (f.cliente || '').toLowerCase(); (grupos[k] ||= []).push(f) })
+  filas.forEach(f => { const k = (f.cliente || '').trim().toLowerCase() || normalizePatente(f.patente); (grupos[k] ||= []).push(f) })
   return Object.values(grupos).map(fs => fs.sort((a, b) => b.fecha.localeCompare(a.fecha))).sort((a, b) => b[0].fecha.localeCompare(a[0].fecha))
 }
 
-function BuscadorCliente({ onCliente }) {
-  const [texto, setTexto] = useState('')
+const vehiculosDe = (fs) => {
+  const v = {}
+  fs.forEach(f => { const k = normalizePatente(f.patente) || 's/patente'; if (!v[k]) v[k] = `${f.patente || 's/patente'}${f.vehiculo ? ' ' + f.vehiculo : ''}` })
+  const l = Object.values(v)
+  return l.length > 2 ? `${l.length} vehículos: ${l.slice(0, 2).join(', ')}…` : l.join(' · ')
+}
+
+function BuscadorCliente({ onCliente, externo }) {
+  const [texto, setTexto] = useState(externo || '')
+  useEffect(() => { if (externo !== undefined) setTexto(externo) }, [externo])
   const [grupos, setGrupos] = useState(null)
   const [cargando, setCargando] = useState(false)
   const [sel, setSel] = useState(null)
@@ -746,7 +762,7 @@ function BuscadorCliente({ onCliente }) {
             <button key={i} onClick={() => setSel(i)} className="w-full text-left rounded-2xl bg-white/70 border border-white/80 hover:bg-white px-3 py-2.5 flex items-center gap-3">
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-slate-800 truncate">{g[0].cliente || 'Sin nombre'}</span>
-                <span className="block text-xs text-slate-500 truncate">{g[0].patente || 's/patente'} · {g[0].vehiculo || '—'} · última visita {ddmm(g[0].fecha)}</span>
+                <span className="block text-xs text-slate-500 truncate">{vehiculosDe(g)} · última visita {ddmm(g[0].fecha)}</span>
               </span>
               <span className="text-xs text-slate-500">{g.length} serv.</span>
             </button>
@@ -759,7 +775,7 @@ function BuscadorCliente({ onCliente }) {
           <p className="text-[11px] text-violet-600">Los resúmenes de cada mes (abajo) muestran solo a este cliente.</p>
           <div>
             <p className="font-bold text-slate-900">{hist[0].cliente || 'Sin nombre'}</p>
-            <p className="text-xs text-slate-500">{hist[0].patente || 's/patente'} · {hist[0].vehiculo || '—'}</p>
+            <p className="text-xs text-slate-500">{vehiculosDe(hist)}</p>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-2xl bg-white/70 p-2"><p className="text-lg font-bold">{hist.length}</p><p className="text-[11px] text-slate-500">servicios</p></div>
@@ -779,7 +795,7 @@ function BuscadorCliente({ onCliente }) {
                 {fs.map((f, i) => (
                   <div key={i} className="flex gap-2 text-xs text-slate-600 mt-1">
                     <span className="w-12 shrink-0">{ddmm(f.fecha)}</span>
-                    <span className="flex-1 min-w-0 truncate">{f.servicio}{f.membresia ? ' · membresía' : ''}</span>
+                    <span className="flex-1 min-w-0 truncate">{f.patente ? `${f.patente} · ` : ''}{f.servicio}{f.membresia ? ' · membresía' : ''}</span>
                     <span className="font-medium text-slate-800">{fmt(f.monto)}</span>
                   </div>
                 ))}
@@ -792,7 +808,7 @@ function BuscadorCliente({ onCliente }) {
   )
 }
 
-function VistaVentas() {
+function VistaVentas({ busqueda }) {
   const [cliente, setCliente] = useState(null)
   const [meses, setMeses] = useState(2)       // cuántos meses se muestran (actual + anteriores)
   const [oldest, setOldest] = useState(null)  // mes más antiguo con datos
@@ -806,7 +822,7 @@ function VistaVentas() {
     <PinVentas>
       <div className="space-y-4">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 px-1">Ventas</h1>
-        <BuscadorCliente onCliente={setCliente} />
+        <BuscadorCliente onCliente={setCliente} externo={busqueda} />
         <div className="grid lg:grid-cols-2 gap-4 items-start">
           {lista.map(ym => <ResumenMes key={ym} ym={ym} cliente={cliente} />)}
         </div>
@@ -1406,7 +1422,7 @@ function Caja() {
             <div className="md:hidden w-10 h-10 rounded-xl bg-gradient-to-b from-[#3d9bff] to-[#0a6cff] flex items-center justify-center shadow-md shadow-blue-500/30 shrink-0"><Droplets size={20} className="text-white" /></div>
             <div className={`${glass} rounded-2xl flex-1 flex items-center gap-2 px-3`}>
               <Search size={18} className="text-slate-400" />
-              <input value={busqueda} onChange={e => { setBusqueda(e.target.value); setVista('trabajos') }} placeholder="Buscar cliente, patente, vehículo..."
+              <input value={busqueda} onChange={e => { setBusqueda(e.target.value); if (vista !== 'ventas') setVista('trabajos') }} placeholder="Buscar cliente, patente, vehículo..."
                 className="flex-1 min-w-0 bg-transparent py-3 text-[15px] placeholder:text-slate-400 focus:outline-none" />
               {busqueda && <button onClick={() => setBusqueda('')} className="text-slate-400"><X size={16} /></button>}
             </div>
@@ -1415,9 +1431,9 @@ function Caja() {
 
           <Aviso msg={msg} />
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
-            vista === 'ventas' ? <VistaVentas />
+            vista === 'ventas' ? <VistaVentas busqueda={busqueda} />
             : vista === 'trabajos'
-              ? <VistaTrabajos trabajos={trabajos} pagos={pagos} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} />
+              ? <VistaTrabajos trabajos={trabajos} pagos={pagos} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} onHistorial={() => setVista('ventas')} />
               : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
           )}
         </main>
