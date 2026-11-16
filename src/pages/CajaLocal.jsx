@@ -601,7 +601,9 @@ function PinVentas({ children }) {
   )
 }
 
-function ResumenMes({ ym }) {
+const claveCliente = (f) => normalizePatente(f.patente) || (f.cliente || '').toLowerCase()
+
+function ResumenMes({ ym, cliente }) {
   const [filas, setFilas] = useState(null)
   const [error, setError] = useState(false)
   const [abierto, setAbierto] = useState(null)
@@ -613,9 +615,11 @@ function ResumenMes({ ym }) {
 
   if (error) return <div className={`${glass} rounded-3xl p-5 text-sm text-rose-600`}>No se pudieron cargar las ventas de {nombreMes(ym)}.</div>
   if (!filas) return <div className={`${glass} rounded-3xl p-5 text-sm text-slate-500`}>Cargando {nombreMes(ym)}...</div>
-  const vendido = filas.reduce((a, f) => a + f.vendido, 0)
-  const cobrado = filas.reduce((a, f) => a + f.cobrado, 0)
-  const dias = Object.entries(filas.reduce((acc, f) => { (acc[f.fecha] ||= []).push(f); return acc }, {})).sort((a, b) => b[0].localeCompare(a[0]))
+  const todas = filas
+  const filas_ = cliente ? todas.filter(f => claveCliente(f) === cliente.key) : todas
+  const vendido = filas_.reduce((a, f) => a + f.vendido, 0)
+  const cobrado = filas_.reduce((a, f) => a + f.cobrado, 0)
+  const dias = Object.entries(filas_.reduce((acc, f) => { (acc[f.fecha] ||= []).push(f); return acc }, {})).sort((a, b) => b[0].localeCompare(a[0]))
   const antesDeCaja = ym < CAJA_DESDE.slice(0, 7)
 
   return (
@@ -623,7 +627,7 @@ function ResumenMes({ ym }) {
       <div>
         <p className="text-xs font-semibold tracking-wide text-slate-400">{nombreMes(ym).toUpperCase()}</p>
         <p className="text-3xl font-bold text-slate-900">{fmt(vendido)}</p>
-        <p className="text-xs text-slate-500">Ventas totales · {filas.length} trabajos</p>
+        <p className="text-xs text-slate-500">{cliente ? `Solo ${cliente.nombre}` : 'Ventas totales'} · {filas_.length} trabajos</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Cobrado</p><p className="text-lg font-bold text-emerald-600">{fmt(cobrado)}</p></div>
@@ -631,6 +635,7 @@ function ResumenMes({ ym }) {
       </div>
       <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {ym === CAJA_DESDE.slice(0, 7) ? `Los días que se usó este link salen de esta caja; los demás, de Aquapp.` : antesDeCaja ? 'Datos de Aquapp.' : ''}</p>
       <div className="space-y-1.5">
+        {dias.length === 0 && <p className="text-sm text-slate-500 px-1">{cliente ? 'Sin servicios de este cliente en el mes.' : 'Sin datos en este mes.'}</p>}
         {dias.map(([fecha, fs]) => {
           const v = fs.reduce((a, f) => a + f.vendido, 0)
           const open = abierto === fecha
@@ -686,7 +691,7 @@ async function buscarHistorial(texto) {
   return Object.values(grupos).map(fs => fs.sort((a, b) => b.fecha.localeCompare(a.fecha))).sort((a, b) => b[0].fecha.localeCompare(a[0].fecha))
 }
 
-function BuscadorCliente() {
+function BuscadorCliente({ onCliente }) {
   const [texto, setTexto] = useState('')
   const [grupos, setGrupos] = useState(null)
   const [cargando, setCargando] = useState(false)
@@ -705,6 +710,10 @@ function BuscadorCliente() {
   }, [texto])
 
   const hist = sel !== null && grupos ? grupos[sel] : null
+  useEffect(() => {
+    onCliente(hist ? { key: claveCliente(hist[0]), nombre: hist[0].cliente || hist[0].patente || 'cliente' } : null)
+  }, [hist]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Todos los periodos desde el primer servicio hasta hoy (los vacíos también), del más nuevo al más antiguo
   const periodos = useMemo(() => {
     if (!hist) return []
     const m = {}
@@ -712,7 +721,17 @@ function BuscadorCliente() {
       const k = por === 'semana' ? lunesDe(f.fecha) : f.fecha.slice(0, 7)
       ;(m[k] ||= []).push(f)
     })
-    return Object.entries(m).sort((a, b) => b[0].localeCompare(a[0]))
+    const hoy = hoyLocal()
+    const primero = hist[hist.length - 1].fecha
+    const claves = []
+    if (por === 'semana') {
+      for (let k = lunesDe(hoy); k >= lunesDe(primero); k = moverDiaStr(k, -7)) claves.push(k)
+    } else {
+      let [y, mo] = hoy.slice(0, 7).split('-').map(Number)
+      const [y0, m0] = primero.slice(0, 7).split('-').map(Number)
+      while (y > y0 || (y === y0 && mo >= m0)) { claves.push(`${y}-${String(mo).padStart(2, '0')}`); mo--; if (mo === 0) { mo = 12; y-- } }
+    }
+    return claves.map(k => [k, m[k] || []])
   }, [hist, por])
 
   return (
@@ -737,6 +756,7 @@ function BuscadorCliente() {
       {hist && (
         <div className="space-y-3">
           <button onClick={() => setSel(null)} className="text-xs text-sky-600 flex items-center gap-1"><ChevronLeft size={14} /> Volver a los resultados</button>
+          <p className="text-[11px] text-violet-600">Los resúmenes de cada mes (abajo) muestran solo a este cliente.</p>
           <div>
             <p className="font-bold text-slate-900">{hist[0].cliente || 'Sin nombre'}</p>
             <p className="text-xs text-slate-500">{hist[0].patente || 's/patente'} · {hist[0].vehiculo || '—'}</p>
@@ -751,9 +771,9 @@ function BuscadorCliente() {
           </div>
           <div className="space-y-1.5">
             {periodos.map(([k, fs]) => (
-              <div key={k} className="rounded-2xl bg-white/60 border border-white/80 px-3 py-2.5">
-                <div className="flex justify-between text-sm font-semibold text-slate-800">
-                  <span>{por === 'semana' ? `Semana del ${ddmm(k)}` : nombreMes(k)} · {fs.length} {fs.length === 1 ? 'servicio' : 'servicios'}</span>
+              <div key={k} className={`rounded-2xl border border-white/80 px-3 py-2.5 ${fs.length ? 'bg-white/60' : 'bg-white/30'}`}>
+                <div className={`flex justify-between text-sm font-semibold ${fs.length ? 'text-slate-800' : 'text-slate-400'}`}>
+                  <span>{por === 'semana' ? `Semana del ${ddmm(k)}` : nombreMes(k)} · {fs.length ? `${fs.length} ${fs.length === 1 ? 'servicio' : 'servicios'}` : 'sin servicios'}</span>
                   <span>{fmt(fs.reduce((a, f) => a + f.monto, 0))}</span>
                 </div>
                 {fs.map((f, i) => (
@@ -773,15 +793,24 @@ function BuscadorCliente() {
 }
 
 function VistaVentas() {
+  const [cliente, setCliente] = useState(null)
+  const [meses, setMeses] = useState(2)       // cuántos meses se muestran (actual + anteriores)
+  const [oldest, setOldest] = useState(null)  // mes más antiguo con datos
+  useEffect(() => {
+    supabase.from('trabajos_aquapp').select('fecha').eq('local_id', LOCAL_FONTOVA).order('fecha').limit(1)
+      .then(({ data }) => setOldest(data?.[0]?.fecha?.slice(0, 7) || null))
+  }, [])
+  const lista = Array.from({ length: meses }, (_, i) => { const [y, m] = ymHoy().split('-').map(Number); const d = new Date(y, m - 1 - i, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })
+  const hayMas = oldest ? lista[lista.length - 1] > oldest : false
   return (
     <PinVentas>
       <div className="space-y-4">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 px-1">Ventas</h1>
-        <BuscadorCliente />
+        <BuscadorCliente onCliente={setCliente} />
         <div className="grid lg:grid-cols-2 gap-4 items-start">
-          <ResumenMes ym={ymHoy()} />
-          <ResumenMes ym={ymAnterior()} />
+          {lista.map(ym => <ResumenMes key={ym} ym={ym} cliente={cliente} />)}
         </div>
+        {hayMas && <button onClick={() => setMeses(m => m + 1)} className={`${btnSecundario} w-full py-3`}>Ver un mes anterior</button>}
       </div>
     </PinVentas>
   )
