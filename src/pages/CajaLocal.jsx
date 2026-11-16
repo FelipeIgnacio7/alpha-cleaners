@@ -22,7 +22,7 @@ export const CAJA_TOKEN = 'edg28xx8nyy'
 const PIN_HASH = '869a038e14379e1f41f546899a09cd4a5d9d3e82eedc72e01ddd186e7c6a5e06'
 const PIN_KEY = 'alpha:caja-fontova'
 // Clave aparte para la pestaña de ventas (la barrera es solo de pantalla; la seguridad real está pendiente)
-const VENTAS_HASH = 'a8508a288310004ae64adc995d4ba15da86b8609d35292c4ffa69a67ed108c8c'
+const VENTAS_HASH = '345dba34fd1b71be9f260a370501d909e6e6791a5cb41a2acc73f57a7b4bea3e'
 const VENTAS_KEY = 'alpha:caja-ventas'
 // Desde esta fecha las ventas salen de la caja propia; antes, de lo cargado desde Aquapp
 const CAJA_DESDE = '2026-11-11'
