@@ -28,3 +28,15 @@ do $$ begin
       using (bucket_id = 'boletas') with check (bucket_id = 'boletas');
   end if;
 end $$;
+
+-- Lectura automática: la boleta puede guardarse solo con la foto (monto null, lectura 'pendiente');
+-- una tarea programada la lee y completa monto/comercio/fecha (lectura 'leida'; 'error' si no se pudo).
+alter table boletas alter column monto drop not null;
+alter table boletas drop constraint if exists boletas_monto_check;
+alter table boletas add constraint boletas_monto_check check (monto is null or monto > 0);
+alter table boletas add column if not exists lectura text not null default 'manual';
+alter table boletas drop constraint if exists boletas_lectura_check;
+alter table boletas add constraint boletas_lectura_check check (lectura in ('manual','pendiente','leida','error'));
+alter table boletas add column if not exists lectura_at timestamptz;
+alter table boletas add column if not exists lectura_nota text;
+create index if not exists boletas_lectura_idx on boletas (lectura) where lectura = 'pendiente';

@@ -4,9 +4,9 @@ import { supabase } from '../lib/supabase'
 
 // Archivo de boletas de caja chica: se saca una foto de la boleta, se anota el monto y queda guardada
 // por mes, con el total, lista para entregarle a la contadora (PDF con las fotos o planilla CSV).
-// Se entra con /boletas/<BOLETAS_TOKEN> (sin menú ni datos del negocio) o desde el panel (/boletas).
-// SEGURIDAD PENDIENTE: la barrera es solo el enlace; el bucket y la tabla están abiertos temporalmente.
-export const BOLETAS_TOKEN = 'k7q2m9xv4rt8'
+// Vive dentro del panel (menú "Boletas", /boletas). Si se guarda solo con la foto (sin monto), queda "pendiente de
+// lectura" y una tarea programada (scripts/boletas_lectura.py + tarea "boletas-leer") completa monto, comercio y fecha.
+// SEGURIDAD PENDIENTE: el bucket y la tabla están abiertos temporalmente.
 const LOCAL_ID = 1
 const BUCKET = 'boletas'
 
@@ -76,8 +76,11 @@ function ModalBoleta({ boleta, categorias, onListo, onCerrar }) {
 
   async function guardar() {
     if (enviando.current) return
-    if (!Number(f.monto) || Number(f.monto) <= 0) return setError('Ingresa el monto de la boleta.')
+    const conMonto = Number(f.monto) > 0
+    if (f.monto !== '' && !conMonto) return setError('El monto debe ser mayor que cero.')
     if (!editando && !archivo) return setError('Saca o elige la foto de la boleta.')
+    if (!conMonto && !preview) return setError('Ingresa el monto o saca la foto para que se lea sola.')
+    if (editando && !conMonto) return setError('Ingresa el monto de la boleta.')
     enviando.current = true; setSaving(true)
     try {
       let foto_path = boleta?.foto_path ?? null
@@ -89,8 +92,10 @@ function ModalBoleta({ boleta, categorias, onListo, onCerrar }) {
         foto_path = nuevo
       }
       const fila = {
-        local_id: LOCAL_ID, fecha: f.fecha, monto: Number(f.monto), comercio: f.comercio.trim() || null, metodo_pago: f.metodo_pago,
+        local_id: LOCAL_ID, fecha: f.fecha, monto: conMonto ? Number(f.monto) : null, comercio: f.comercio.trim() || null, metodo_pago: f.metodo_pago,
         categoria_id: f.categoria_id ? Number(f.categoria_id) : null, notas: f.notas.trim() || null, foto_path,
+        // Sin monto => queda para lectura automática; con monto escrito a mano => manual (una corrección también lo vuelve manual)
+        lectura: conMonto ? 'manual' : 'pendiente',
       }
       const { error: ei } = editando
         ? await supabase.from('boletas').update(fila).eq('id', boleta.id)
@@ -121,9 +126,12 @@ function ModalBoleta({ boleta, categorias, onListo, onCerrar }) {
         </button>
       )}
       <div className="grid grid-cols-2 gap-3">
-        <div><label className={labelCls}>Monto *</label><input type="number" inputMode="numeric" value={f.monto} onChange={e => { set('monto', e.target.value); setError(null) }} className={inputCls} placeholder="ej: 3500" /></div>
+        <div><label className={labelCls}>Monto {editando ? '*' : '(opcional)'}</label><input type="number" inputMode="numeric" value={f.monto} onChange={e => { set('monto', e.target.value); setError(null) }} className={inputCls} placeholder="ej: 3500" /></div>
         <div><label className={labelCls}>Fecha</label><input type="date" value={f.fecha} onChange={e => e.target.value && set('fecha', e.target.value)} className={inputCls} /></div>
       </div>
+      {!editando && !Number(f.monto) && preview && (
+        <p className="text-xs text-sky-300 bg-sky-950/40 border border-sky-900 rounded-lg px-3 py-2">Si dejas el monto vacío, la boleta se guarda con la foto y el sistema la lee solo (monto, comercio y fecha) en la próxima revisión automática.</p>
+      )}
       <div><label className={labelCls}>Comercio / qué se compró</label><input value={f.comercio} onChange={e => set('comercio', e.target.value)} className={inputCls} placeholder="ej: Estacionamiento, Lider, bencina" /></div>
       <div>
         <label className={labelCls}>¿Cómo se pagó?</label>
@@ -147,7 +155,7 @@ function ModalBoleta({ boleta, categorias, onListo, onCerrar }) {
 
 function ModalVer({ b, nombreCat, onEditar, onEliminar, onCerrar }) {
   return (
-    <Modal titulo={fmt(b.monto)} onCerrar={onCerrar}
+    <Modal titulo={b.monto == null ? 'Pendiente de lectura' : fmt(b.monto)} onCerrar={onCerrar}
       footer={<>
         <button onClick={onEliminar} className={`${btnSecundario} px-4 py-2.5 !text-rose-400`}><Trash2 size={16} /> Eliminar</button>
         <button onClick={onEditar} className={`${btnPrimario} px-4 py-2.5`}><Pencil size={16} /> Editar</button>
@@ -155,6 +163,9 @@ function ModalVer({ b, nombreCat, onEditar, onEliminar, onCerrar }) {
       {b.foto_path && <a href={urlFoto(b.foto_path)} target="_blank" rel="noreferrer"><img src={urlFoto(b.foto_path)} alt="Boleta" className="w-full max-h-[60vh] object-contain rounded-lg bg-black" /></a>}
       <div className="text-sm text-gray-300 space-y-1">
         <p>{ddmm(b.fecha)} · {nombreMetodo(b.metodo_pago)}{nombreCat ? ` · ${nombreCat}` : ''}</p>
+        {b.lectura === 'pendiente' && <p className="text-amber-300">Esperando la lectura automática. Si quieres, anota el monto tú con "Editar".</p>}
+        {b.lectura === 'leida' && <p className="text-sky-300">Leída automáticamente: revisa que el monto y el comercio estén bien.</p>}
+        {b.lectura === 'error' && <p className="text-rose-300">No se pudo leer la foto{b.lectura_nota ? `: ${b.lectura_nota}` : ''}. Anota el monto con "Editar".</p>}
         {b.comercio && <p className="font-medium text-gray-100">{b.comercio}</p>}
         {b.notas && <p className="text-gray-400">{b.notas}</p>}
       </div>
@@ -191,8 +202,8 @@ function descargarCsv(ym, filas, nombreCat) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `boletas_${ym}.csv`; a.click()
 }
 
-export default function Boletas({ token, embedded = false }) {
-  const autorizado = embedded || token === BOLETAS_TOKEN
+export default function Boletas({ embedded = true }) {
+  const autorizado = true
   const [ym, setYm] = useState(hoyLocal().slice(0, 7))
   const [filas, setFilas] = useState(null)
   const [categorias, setCategorias] = useState([])
@@ -211,13 +222,15 @@ export default function Boletas({ token, embedded = false }) {
 
   const catPorId = useMemo(() => Object.fromEntries(categorias.map(c => [c.id, c.nombre])), [categorias])
   const nombreCat = (b) => catPorId[b.categoria_id]
-  const total = (filas ?? []).reduce((a, b) => a + Number(b.monto), 0)
-  const porMetodo = METODOS.map(m => ({ ...m, total: (filas ?? []).filter(b => b.metodo_pago === m.v).reduce((a, b) => a + Number(b.monto), 0) })).filter(m => m.total > 0)
+  const conMonto = (filas ?? []).filter(b => b.monto != null)
+  const pendientes = (filas ?? []).filter(b => b.monto == null)
+  const total = conMonto.reduce((a, b) => a + Number(b.monto), 0)
+  const porMetodo = METODOS.map(m => ({ ...m, total: conMonto.filter(b => b.metodo_pago === m.v).reduce((a, b) => a + Number(b.monto), 0) })).filter(m => m.total > 0)
 
   function aviso(text, ok = true) { setMsg({ ok, text }); setTimeout(() => setMsg(null), 4000) }
 
   async function eliminar(b) {
-    if (!confirm(`¿Eliminar la boleta de ${fmt(b.monto)} del ${ddmm(b.fecha)}? No se puede deshacer.`)) return
+    if (!confirm(`¿Eliminar la boleta${b.monto != null ? ` de ${fmt(b.monto)}` : ''} del ${ddmm(b.fecha)}? No se puede deshacer.`)) return
     const { error } = await supabase.from('boletas').delete().eq('id', b.id)
     if (error) return aviso('No se pudo eliminar. Revisa la conexión.', false)
     if (b.foto_path) await supabase.storage.from(BUCKET).remove([b.foto_path])
@@ -250,12 +263,13 @@ export default function Boletas({ token, embedded = false }) {
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
         <p className="text-xs font-semibold tracking-wide text-gray-500">TOTAL DEL MES</p>
         <p className="text-3xl font-bold text-sky-400">{fmt(total)}</p>
-        <p className="text-xs text-gray-500">{filas ? `${filas.length} ${filas.length === 1 ? 'boleta' : 'boletas'}` : 'Cargando...'}</p>
+        <p className="text-xs text-gray-500">{filas ? `${conMonto.length} ${conMonto.length === 1 ? 'boleta' : 'boletas'}` : 'Cargando...'}</p>
+        {pendientes.length > 0 && <p className="text-xs text-amber-300">{pendientes.length} {pendientes.length === 1 ? 'boleta pendiente de lectura' : 'boletas pendientes de lectura'} (aún no suman al total)</p>}
         {porMetodo.length > 0 && <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">{porMetodo.map(m => <span key={m.v}>{m.l}: <b className="text-gray-200">{fmt(m.total)}</b></span>)}</div>}
-        {filas && filas.length > 0 && (
+        {conMonto.length > 0 && (
           <div className="flex gap-2 pt-2">
-            <button onClick={() => abrirResumen(ym, filas, nombreCat)} className={`${btnSecundario} flex-1 py-2.5 text-sm`}><Printer size={16} /> PDF para la contadora</button>
-            <button onClick={() => descargarCsv(ym, filas, nombreCat)} className={`${btnSecundario} flex-1 py-2.5 text-sm`}><Download size={16} /> Planilla (CSV)</button>
+            <button onClick={() => abrirResumen(ym, conMonto, nombreCat)} className={`${btnSecundario} flex-1 py-2.5 text-sm`}><Printer size={16} /> PDF para la contadora</button>
+            <button onClick={() => descargarCsv(ym, conMonto, nombreCat)} className={`${btnSecundario} flex-1 py-2.5 text-sm`}><Download size={16} /> Planilla (CSV)</button>
           </div>
         )}
       </div>
@@ -266,10 +280,13 @@ export default function Boletas({ token, embedded = false }) {
           <button key={b.id} onClick={() => setModal({ tipo: 'ver', b })} className="w-full flex items-center gap-3 bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl p-2.5 text-left">
             {b.foto_path ? <img src={urlFoto(b.foto_path)} alt="" loading="lazy" className="w-14 h-14 rounded-lg object-cover bg-black shrink-0" /> : <div className="w-14 h-14 rounded-lg bg-gray-800 shrink-0" />}
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-100 truncate">{b.comercio || 'Sin descripción'}</p>
+              <p className="font-semibold text-gray-100 truncate">{b.comercio || (b.monto == null ? 'Boleta por leer' : 'Sin descripción')}</p>
               <p className="text-xs text-gray-400">{ddmm(b.fecha)} · {nombreMetodo(b.metodo_pago)}{nombreCat(b) ? ` · ${nombreCat(b)}` : ''}</p>
             </div>
-            <p className="font-bold text-gray-100">{fmt(b.monto)}</p>
+            <div className="text-right">
+              {b.monto == null ? <p className="text-xs font-semibold text-amber-300">{b.lectura === 'error' ? 'No se leyó' : 'Leyendo...'}</p> : <p className="font-bold text-gray-100">{fmt(b.monto)}</p>}
+              {b.lectura === 'leida' && <p className="text-[10px] text-sky-300">leída auto</p>}
+            </div>
           </button>
         ))}
       </div>

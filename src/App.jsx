@@ -26,11 +26,6 @@ function Shell() {
     return <RegistroGastos token={pathname.split('/')[2]} />
   }
 
-  // Archivo de boletas de caja chica (para quien las junta): solo fotos, montos y el total del mes.
-  if (pathname.startsWith('/boletas/')) {
-    return <Boletas token={pathname.split('/')[2]} />
-  }
-
   // Caja del local para los trabajadores: sin menú ni datos del negocio, solo operar el día.
   if (pathname.startsWith('/local/')) {
     return <CajaLocal token={pathname.split('/')[2]} />
