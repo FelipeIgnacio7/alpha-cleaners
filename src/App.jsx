@@ -14,6 +14,7 @@ import Personal from './pages/Personal'
 import RegistroGastos from './pages/RegistroGastos'
 import CajaLocal from './pages/CajaLocal'
 import CajaAdmin from './pages/CajaAdmin'
+import Boletas from './pages/Boletas'
 import AccessGate from './components/AccessGate'
 
 function Shell() {
@@ -23,6 +24,11 @@ function Shell() {
   // Página aislada para el encargado: sin menú, sin dashboard, solo el formulario de gastos.
   if (pathname.startsWith('/registro-gastos')) {
     return <RegistroGastos token={pathname.split('/')[2]} />
+  }
+
+  // Archivo de boletas de caja chica (para quien las junta): solo fotos, montos y el total del mes.
+  if (pathname.startsWith('/boletas/')) {
+    return <Boletas token={pathname.split('/')[2]} />
   }
 
   // Caja del local para los trabajadores: sin menú ni datos del negocio, solo operar el día.
@@ -62,6 +68,7 @@ function Shell() {
             <Route path="/reactivacion" element={<Reactivacion />} />
             <Route path="/personal" element={<Personal />} />
             <Route path="/caja" element={<CajaAdmin />} />
+            <Route path="/boletas" element={<Boletas embedded />} />
           </Routes>
         </main>
       </div>
