@@ -1193,6 +1193,66 @@ function ModalMovimiento({ onGuardado, onCerrar }) {
   )
 }
 
+// ---------- Propinas acumuladas (para que el equipo sepa cuánto les corresponde sin abrir cada servicio) ----------
+function PropinasAcumuladas({ refrescar }) {
+  const hoy = hoyLocal()
+  const [periodo, setPeriodo] = useState('semana')
+  const [desdeC, setDesdeC] = useState(hoy)
+  const [hastaC, setHastaC] = useState(hoy)
+  const [filas, setFilas] = useState(null)
+
+  const [desde, hasta] = useMemo(() => {
+    if (periodo === 'hoy') return [hoy, hoy]
+    if (periodo === 'semana') return [lunesDe(hoy), moverDiaStr(lunesDe(hoy), 6)]
+    if (periodo === 'mes') return [`${hoy.slice(0, 7)}-01`, finMes(hoy.slice(0, 7))]
+    if (periodo === 'anterior') { const ym = ymAnterior(); return [`${ym}-01`, finMes(ym)] }
+    return desdeC <= hastaC ? [desdeC, hastaC] : [hastaC, desdeC]
+  }, [periodo, desdeC, hastaC, hoy])
+
+  useEffect(() => {
+    let vivo = true
+    setFilas(null)
+    supabase.from('caja_propinas').select('monto, medio, fecha').eq('local_id', LOCAL_FONTOVA).gte('fecha', desde).lte('fecha', hasta).order('fecha')
+      .then(({ data }) => vivo && setFilas(data ?? []))
+    return () => { vivo = false }
+  }, [desde, hasta, refrescar])
+
+  const total = (filas ?? []).reduce((a, f) => a + Number(f.monto), 0)
+  const porMedio = Object.fromEntries(MEDIOS.map(m => [m.key, (filas ?? []).filter(f => f.medio === m.key).reduce((a, f) => a + Number(f.monto), 0)]))
+  const porDia = Object.entries((filas ?? []).reduce((acc, f) => { acc[f.fecha] = (acc[f.fecha] || 0) + Number(f.monto); return acc }, {})).sort((a, b) => b[0].localeCompare(a[0]))
+  const TABS = [['hoy', 'Hoy'], ['semana', 'Esta semana'], ['mes', 'Este mes'], ['anterior', 'Mes anterior'], ['rango', 'Rango']]
+
+  return (
+    <div className={`${glass} rounded-3xl p-5 space-y-3 text-sm`}>
+      <p className="font-semibold text-slate-900 flex items-center gap-2"><Gift size={16} className="text-violet-500" /> Propinas acumuladas</p>
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map(([k, l]) => <button key={k} onClick={() => setPeriodo(k)} className={`${chip(periodo === k)} !px-2.5 !py-1.5 !text-xs`}>{l}</button>)}
+      </div>
+      {periodo === 'rango' && (
+        <div className="grid grid-cols-2 gap-2">
+          <div><label className={labelCls}>Desde</label><input type="date" value={desdeC} onChange={e => e.target.value && setDesdeC(e.target.value)} className={inputCls} /></div>
+          <div><label className={labelCls}>Hasta</label><input type="date" value={hastaC} onChange={e => e.target.value && setHastaC(e.target.value)} className={inputCls} /></div>
+        </div>
+      )}
+      <p className="text-xs text-slate-400">{desde === hasta ? ddmm(desde) : `${ddmm(desde)} al ${ddmm(hasta)}`}</p>
+      {!filas ? <p className="text-xs text-slate-500">Cargando...</p> : (
+        <>
+          <p className="text-3xl font-bold text-violet-600">{fmt(total)}</p>
+          <p className="text-xs text-slate-400">{filas.length} {filas.length === 1 ? 'propina' : 'propinas'} · total para repartir</p>
+          {MEDIOS.filter(m => porMedio[m.key] > 0).map(m => (
+            <div key={m.key} className="flex justify-between text-slate-600"><span>{m.label}</span><span className="font-semibold text-slate-800">{fmt(porMedio[m.key])}</span></div>
+          ))}
+          {porDia.length > 1 && (
+            <div className="pt-2 border-t border-slate-200/70 space-y-0.5">
+              {porDia.map(([f, v]) => <div key={f} className="flex justify-between text-xs text-slate-500"><span>{ddmm(f)}</span><span>{fmt(v)}</span></div>)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
   const gastosEfectivo = gastos.filter(g => g.metodo_pago === 'efectivo').reduce((a, g) => a + Number(g.monto), 0)
   const totalGastos = gastos.reduce((a, g) => a + Number(g.monto), 0)
@@ -1275,6 +1335,7 @@ function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
             <div key={m.key} className="flex justify-between text-slate-600"><span>{m.label}</span><span className="font-semibold text-slate-800">{fmt(r.propinasPorMedio[m.key])}</span></div>
           ))}
         </div>
+        <PropinasAcumuladas refrescar={propinas.length} />
         <div className={`${glass} rounded-3xl p-5 space-y-2 text-sm`}>
           <p className="font-semibold text-slate-900">Flujo de dinero</p>
           <div className="flex justify-between text-slate-600"><span>Ingresos de dinero</span><span className="text-emerald-600 font-semibold">{fmt(r.cobrado)}</span></div>
