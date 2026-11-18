@@ -150,6 +150,14 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   const [medioPropina, setMedioPropina] = useState(null)   // null = el mismo medio del cobro
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  // Fecha del pago: normalmente hoy; si el cliente pagó otro día y no alcanzaron a registrarlo, se puede dejar en el día que corresponde
+  const hoy = hoyLocal()
+  const ayer = hoyLocal(new Date(Date.now() - 86400000))
+  const minFecha = [trabajo.fecha, hoyLocal(new Date(Date.now() - 7 * 86400000))].sort().pop()
+  const [diaPago, setDiaPago] = useState('hoy')   // hoy | ayer | otro
+  const [otraFecha, setOtraFecha] = useState(ayer)
+  const fechaPago = diaPago === 'hoy' ? hoy : diaPago === 'ayer' ? ayer : otraFecha
+  const puedeOtroDia = (trabajo.fecha || hoy) < hoy
   const recibido = Number(monto) || 0
   const abono = Math.min(recibido, pendiente)
   // Si el cliente paga más que lo pendiente, la diferencia es propina para el equipo
@@ -162,6 +170,7 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
     if (enviando.current) return
     const m = abono
     if (!m || m <= 0) return setError('Ingresa el monto.')
+    if (fechaPago > hoy || fechaPago < minFecha) return setError(`La fecha del pago debe estar entre el ${ddmm(minFecha)} y hoy.`)
     enviando.current = true
     setSaving(true)
     // Revalida contra la base: si otro toque o dispositivo ya cobró, no se cobra dos veces
@@ -172,12 +181,12 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
       return setError(Number(trabajo.total) - yaCobrado <= 0.5 ? 'Este trabajo ya está pagado. Cierra esta ventana y actualiza.' : `Solo quedan ${fmt(Number(trabajo.total) - yaCobrado)} por cobrar. Actualiza y reintenta.`)
     }
     const { error: e } = await supabase.from('caja_pagos').insert({
-      trabajo_id: trabajo.id, local_id: trabajo.local_id, fecha: hoyLocal(), monto: m, medio, recargo,
+      trabajo_id: trabajo.id, local_id: trabajo.local_id, fecha: fechaPago, monto: m, medio, recargo,
     })
     if (e) { enviando.current = false; setSaving(false); return setError('No se pudo registrar el cobro. Revisa la conexión.') }
     if (Number(propina) > 0) {
       const { error: ep } = await supabase.from('caja_propinas').insert({
-        local_id: trabajo.local_id, trabajo_id: trabajo.id, fecha: hoyLocal(), monto: Number(propina), medio: medioPropina || medio,
+        local_id: trabajo.local_id, trabajo_id: trabajo.id, fecha: fechaPago, monto: Number(propina), medio: medioPropina || medio,
       })
       if (ep) { enviando.current = false; setSaving(false); return setError('El cobro quedó registrado, pero la propina no se pudo guardar. Avisa a la administración.') }
     }
@@ -216,6 +225,18 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
             <input type="number" inputMode="numeric" value={monto} onChange={e => { setMonto(e.target.value); setPropinaManual(null); setError(null) }} className={inputCls} />
             <p className="text-xs text-slate-400 mt-1">Pendiente {fmt(pendiente)}. Si paga menos, el resto queda pendiente; si paga más, la diferencia se registra como propina del equipo.</p>
           </div>
+          {puedeOtroDia && (
+            <div className="rounded-2xl bg-white/60 border border-slate-200/70 p-3 space-y-2">
+              <label className={labelCls}>¿Qué día pagó el cliente?</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button type="button" onClick={() => setDiaPago('hoy')} className={chip(diaPago === 'hoy')}>Hoy</button>
+                <button type="button" disabled={ayer < minFecha} onClick={() => setDiaPago('ayer')} className={chip(diaPago === 'ayer')}>Ayer</button>
+                <button type="button" onClick={() => setDiaPago('otro')} className={chip(diaPago === 'otro')}>Otro día</button>
+              </div>
+              {diaPago === 'otro' && <input type="date" min={minFecha} max={hoy} value={otraFecha} onChange={e => e.target.value && setOtraFecha(e.target.value)} className={inputCls} />}
+              {diaPago !== 'hoy' && <p className="text-xs text-amber-700">El pago se cuenta en la caja del {ddmm(fechaPago)} (no en la de hoy). Úsalo solo si el cliente ya había pagado ese día.</p>}
+            </div>
+          )}
           {medio === 'credito' && (
             <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
               <input type="checkbox" checked={conRecargo} onChange={e => setConRecargo(e.target.checked)} className="w-4 h-4" />
@@ -1397,6 +1418,7 @@ function Caja() {
   const [propinas, setPropinas] = useState([])
   const [anteriores, setAnteriores] = useState([])
   const [pagosAnteriores, setPagosAnteriores] = useState([])
+  const [pagosOtroDia, setPagosOtroDia] = useState([])   // pagos de trabajos de hoy registrados con fecha de otro día
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [modal, setModal] = useState(null)   // { tipo: 'nuevo' | 'acciones' | 'cobro' | 'movimiento', trabajo }
@@ -1418,6 +1440,9 @@ function Caja() {
       supabase.from('caja_pagos').select('*').in('trabajo_id', antData.map(x => x.id)).then(({ data: pa }) => setPagosAnteriores(pa ?? []))
     } else setPagosAnteriores([])
     if (t.error || p.error) setMsg({ ok: false, text: 'No se pudieron cargar los datos. Revisa la conexión.' })
+    const idsHoy = (t.data ?? []).map(x => x.id)
+    if (idsHoy.length) supabase.from('caja_pagos').select('*').in('trabajo_id', idsHoy).neq('fecha', hoy).then(({ data: po }) => setPagosOtroDia(po ?? []))
+    else setPagosOtroDia([])
     setTrabajos(t.data ?? [])
     setPagos(p.data ?? [])
     setGastos(g.data ?? [])
@@ -1448,9 +1473,10 @@ function Caja() {
   }
   function aviso(text, ok = true) { setMsg({ ok, text }); setTimeout(() => setMsg(null), 5000) }
   const trabajoActual = modal?.trabajo ? [...trabajos, ...anteriores].find(t => t.id === modal.trabajo.id) || modal.trabajo : null
-  const todosPagos = useMemo(() => [...pagos, ...pagosAnteriores], [pagos, pagosAnteriores])
+  const pagosTrabajosHoy = useMemo(() => [...pagos, ...pagosOtroDia], [pagos, pagosOtroDia])
+  const todosPagos = useMemo(() => [...pagosTrabajosHoy, ...pagosAnteriores], [pagosTrabajosHoy, pagosAnteriores])
   const pendienteActual = trabajoActual ? Math.max(0, Number(trabajoActual.total) - cobradoDe(trabajoActual, todosPagos)) : 0
-  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagos).conDeuda + anteriores.length, [trabajos, pagos, anteriores])
+  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagosTrabajosHoy).conDeuda + anteriores.length, [trabajos, pagosTrabajosHoy, anteriores])
 
   return (
     <div className="min-h-screen relative text-slate-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif' }}>
@@ -1494,7 +1520,7 @@ function Caja() {
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
             vista === 'ventas' ? <VistaVentas busqueda={busqueda} />
             : vista === 'trabajos'
-              ? <VistaTrabajos trabajos={trabajos} pagos={pagos} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} onHistorial={() => setVista('ventas')} />
+              ? <VistaTrabajos trabajos={trabajos} pagos={pagosTrabajosHoy} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} onHistorial={() => setVista('ventas')} />
               : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
           )}
         </main>
