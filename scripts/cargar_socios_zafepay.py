@@ -1,4 +1,5 @@
-"""Carga a Supabase los socios con membresía desde la API de Zafepay (tabla socios_zafepay, una fila por patente).
+"""Carga a Supabase, desde la API de Zafepay, (1) los socios con membresía (tabla socios_zafepay, una fila por patente)
+y (2) las cuotas y pagos de membresías (tabla membresias_zafepay: ingresos del panel). Reemplaza al CSV de scripts/cargar_zafepay.py.
 
 Lee subscription_buyers (quién está inscrito en qué plan, su estado y las patentes que declaró) y los planes
 (subscriptions) para el nombre. Usa ZAFEPAY_API_KEY / ZAFEPAY_API_SECRET de .env.local (solo lectura).
@@ -6,8 +7,9 @@ La tabla se reemplaza completa en cada corrida, así que repetir el comando no d
 
   python scripts/cargar_socios_zafepay.py            # carga
   python scripts/cargar_socios_zafepay.py --probar   # solo muestra el resumen, no escribe
+  python scripts/cargar_socios_zafepay.py --sin-cuotas  # solo socios
 """
-import argparse, base64, json, os, re, sys, urllib.error, urllib.request
+import argparse, base64, json, os, re, sys, time, urllib.error, urllib.request
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,8 +39,17 @@ SH = {'apikey': E['VITE_SUPABASE_ANON_KEY'], 'Authorization': 'Bearer ' + E['VIT
 
 def zp(ruta):
     req = urllib.request.Request(ZP + ruta, headers=ZH)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read())
+    for intento in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or intento == 4:
+                raise
+        except urllib.error.URLError:
+            if intento == 4:
+                raise
+        time.sleep(2 * (intento + 1))
 
 
 def todas(ruta):
@@ -66,9 +77,41 @@ def fecha(s):
     return s[:10] if s else None
 
 
+ESTADO_CUOTA = {'paid': 'Pagado', 'pending': 'Pendiente', 'expired': 'En deuda', 'refunded': 'Reembolsado'}
+
+
+def armar_cuotas(inscritos, planes):
+    cuotas = []
+    for s in inscritos:
+        for c in todas(f"subscription_buyers/{s['id']}/installments"):
+            cuotas.append(dict(
+                plan=planes.get(s['subscription_id']) or 'Sin plan', tipo='Suscripción', valor=float(c['amount']),
+                fecha_vencimiento=fecha(c.get('due_date')), fecha_pago=fecha(c.get('payment_date')),
+                referencia=c.get('external_id'), estado=ESTADO_CUOTA.get(c['status'], 'Pendiente')))
+    return cuotas
+
+
+def cargar_cuotas(cuotas):
+    # Reemplazo completo: primero se carga, y solo si salió bien se borra lo anterior.
+    antes = sb('GET', 'membresias_zafepay?select=id&order=id.desc&limit=1')
+    corte = antes[0]['id'] if antes else 0
+    for i in range(0, len(cuotas), 500):
+        sb('POST', 'membresias_zafepay', cuotas[i:i + 500], {'Prefer': 'return=minimal'})
+    if corte:
+        sb('DELETE', f'membresias_zafepay?id=lte.{corte}', None, {'Prefer': 'return=minimal'})
+    n = 0
+    for off in range(0, 1_000_000, 1000):
+        pag = sb('GET', f'membresias_zafepay?select=id&order=id&offset={off}&limit=1000') or []
+        n += len(pag)
+        if len(pag) < 1000:
+            break
+    print(f'[cuotas_zafepay] base: {n} filas -> {"CUADRA" if n == len(cuotas) else "REVISAR (esperaba " + str(len(cuotas)) + ")"}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--probar', action='store_true')
+    ap.add_argument('--sin-cuotas', action='store_true')
     a = ap.parse_args()
 
     planes = {p['id']: p['name'] for p in todas('subscriptions')}
@@ -96,6 +139,12 @@ def main():
     print(f'[socios_zafepay] {len(inscritos)} inscripciones, {len(filas)} patentes: {cuenta}')
     if len(filas) < 30:
         sys.exit('Muy pocas patentes; parece un error de lectura. No se carga nada.')
+    cuotas = [] if a.sin_cuotas else armar_cuotas(inscritos, planes)
+    if cuotas:
+        pag = [c for c in cuotas if c['estado'] == 'Pagado']
+        print(f'[cuotas_zafepay] {len(cuotas)} cuotas, {len(pag)} pagadas, ${int(sum(c["valor"] for c in pag)):,} cobrado en total')
+        if len(cuotas) < 500:
+            sys.exit('Muy pocas cuotas; parece un error de lectura. No se carga nada.')
     if a.probar:
         return
     ahora = datetime.now(timezone.utc).isoformat()
@@ -105,6 +154,8 @@ def main():
     for i in range(0, len(filas), 200):
         sb('POST', 'socios_zafepay', filas[i:i + 200], {'Prefer': 'return=minimal'})
     print(f'[socios_zafepay] cargadas {len(filas)} filas')
+    if cuotas:
+        cargar_cuotas(cuotas)
 
 
 if __name__ == '__main__':
