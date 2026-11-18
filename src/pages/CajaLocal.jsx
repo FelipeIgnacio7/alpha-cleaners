@@ -1051,7 +1051,7 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
             {info.encontrado
               ? <span className="text-emerald-600 font-medium">Cliente conocido{info.ultimaVisita ? ` · última visita ${info.ultimaVisita.split('-').reverse().join('-')}` : ''}</span>
               : <span className="text-slate-500">Patente nueva</span>}
-            {info.socio && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium"><Crown size={11} /> Socio con membresía</span>}
+            {info.socio && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium"><Crown size={11} /> Socio con membresía{info.zafepay?.plan ? ` · ${info.zafepay.plan}` : ''}{info.zafepay?.estado === 'indebt' ? ' · con pago pendiente' : ''}</span>}
           </div>
         )}
       </div>

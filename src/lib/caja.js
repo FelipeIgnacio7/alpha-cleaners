@@ -165,7 +165,7 @@ export async function buscarPatente(patente, servicios = []) {
   const hace90 = hoyLocal(new Date(Date.now() - 90 * 86400000))
   const mesActual = inicioMes()
 
-  const [propios, ventas, trabajos, telefonos] = await Promise.all([
+  const [propios, ventas, trabajos, telefonos, zafe] = await Promise.all([
     supabase.from('caja_trabajos').select('cliente, telefono, marca, modelo, tamano, fecha, items')
       .eq('patente', norm).eq('anulado', false).order('created_at', { ascending: false }).limit(60),
     supabase.from('transacciones_lavado').select('patente, fecha, marca, modelo, tipo_servicio, monto, cliente:webhook_raw->>cliente')
@@ -173,6 +173,8 @@ export async function buscarPatente(patente, servicios = []) {
     supabase.from('trabajos_aquapp').select('patente, fecha, cliente, marca, modelo, servicios, monto, es_membresia')
       .ilike('patente', patron).order('fecha', { ascending: false }).limit(50),
     supabase.from('patente_telefono').select('patente, telefono, nombre_contacto, nombre_venta').ilike('patente', patron).limit(10),
+    // Socios según Zafepay (tabla socios_zafepay, la llena scripts/cargar_socios_zafepay.py desde la API)
+    supabase.from('socios_zafepay').select('patente, nombre, plan, estado, proximo_cobro').eq('patente', norm).limit(1),
   ])
 
   const es = mismaPatente(norm)
@@ -183,7 +185,10 @@ export async function buscarPatente(patente, servicios = []) {
   const tel = (telefonos.data ?? []).find(es)
   const primero = (arr, campo) => arr.find(r => (r[campo] || '').trim())?.[campo]?.trim() || null
 
-  const socio = t.some(r => r.es_membresia && r.fecha >= hace90)
+  const zp = (zafe.data ?? [])[0] || null
+  const zpVigente = Boolean(zp && (zp.estado === 'active' || zp.estado === 'indebt'))
+  const socio = zpVigente
+    || t.some(r => r.es_membresia && r.fecha >= hace90)
     || v.some(r => /membres/i.test(r.tipo_servicio || '') && r.fecha >= hace90)
     || prop.some(r => r.fecha >= hace90 && (r.items || []).some(i => i.es_membresia))
 
@@ -196,7 +201,7 @@ export async function buscarPatente(patente, servicios = []) {
   const usosMes = [...usos.values()].sort((a, b) => a.fecha.localeCompare(b.fecha))
 
   const fechas = [...v.map(r => r.fecha), ...t.map(r => r.fecha), ...prop.map(r => r.fecha)].sort()
-  const encontrado = Boolean(p || v.length || t.length || tel)
+  const encontrado = Boolean(p || v.length || t.length || tel || zp)
   if (!encontrado) return { encontrado: false }
 
   const marca = p?.marca || primero(v, 'marca') || primero(t, 'marca') || ''
@@ -214,13 +219,14 @@ export async function buscarPatente(patente, servicios = []) {
 
   return {
     encontrado: true,
-    cliente: p?.cliente || tel?.nombre_contacto || primero(v, 'cliente') || primero(t, 'cliente') || tel?.nombre_venta || '',
+    cliente: p?.cliente || tel?.nombre_contacto || primero(v, 'cliente') || primero(t, 'cliente') || tel?.nombre_venta || zp?.nombre || '',
     telefono: p?.telefono || tel?.telefono || '',
     marca,
     modelo,
     tamano,
     tamanoFuente,
     socio,
+    zafepay: zp ? { estado: zp.estado, plan: zp.plan, proximoCobro: zp.proximo_cobro } : null,
     membresia: socio ? {
       interioresUsados: usosMes.filter(u => u.tipo === 'interior').length,
       exterioresUsados: usosMes.filter(u => u.tipo === 'exterior').length,
