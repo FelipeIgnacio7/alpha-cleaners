@@ -63,7 +63,7 @@ export default function RegistroGastos({ token, embedded = false }) {
     setMsg(null)
     // Si es en cuotas, el total se divide en una cuota por mes (cada una queda como un gasto)
     const cuotas = form.es_cuotas && Number(form.num_cuotas) >= 2
-      ? dividirEnCuotas({ monto: form.monto, cuotas: form.num_cuotas, fecha: form.fecha })
+      ? dividirEnCuotas({ monto: form.monto, cuotas: form.num_cuotas, fecha: form.fecha, metodo: form.metodo_pago })
       : null
     const comun = {
       local_id: LOCAL_ID,
@@ -73,7 +73,7 @@ export default function RegistroGastos({ token, embedded = false }) {
       metodo_pago: form.metodo_pago || null,
     }
     const filas = cuotas
-      ? cuotas.map(c => ({ ...comun, monto: c.monto, fecha: c.fecha, notas: notaCuota(c.numero, cuotas.length, Math.round(Number(form.monto)), form.notas), es_cuotas: true, num_cuotas: cuotas.length }))
+      ? cuotas.map(c => ({ ...comun, monto: c.monto, fecha: c.fecha, notas: notaCuota(c.numero, cuotas.length, Math.round(Number(form.monto)), form.notas, form.fecha), es_cuotas: true, num_cuotas: cuotas.length }))
       : [{ ...comun, monto: Number(form.monto), fecha: form.fecha, notas: form.notas || null, es_cuotas: form.es_cuotas, num_cuotas: null }]
     const { error } = await supabase.from('gastos').insert(filas)
     setSaving(false)

@@ -5,16 +5,30 @@ import { CheckCircle2, Clock, AlertCircle, X, Save, RefreshCw, Plus, ChevronDown
 const fmt = (n) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n ?? 0)
 
-// Monto de subarriendo mensual acordado por local (mismo monto todos los meses)
-const MONTOS_ACORDADOS = {
-  3: 5400000, // Mall Plaza Alameda: 180.000 x 30
-  4: 7500000, // Mall Curicó: 250.000 x 30 (subarrendado; independiente de las ventas propias de Curicó)
+// Locales con cuota DIARIA: lo acordado del mes es la cuota diaria por los días que tenga ese mes.
+const CUOTA_DIARIA = {
+  3: 180000, // Mall Plaza Alameda
+  4: 250000, // Mall Curicó (subarrendado; independiente de las ventas propias de Curicó)
+  6: 90000, // Líder Vicuña Mackenna
+}
+// Locales con monto fijo mensual
+const MONTO_MENSUAL = {
   5: 3334000, // Tottus Santa Marta: todo incluido
-  6: 2700000, // Líder Vicuña Mackenna: 90.000 x 30
   7: 2110000, // Ciudad Satélite de Maipú: $1.960.000 arriendo + $150.000 gastos comunes
-  8: 1400000, // Copiapó: todo incluido
+  8: 1400000, // Copiapó: $700.000 el día 1 y $700.000 el día 15
   10: 0, // Mall Plaza Norte: monto pendiente de definir
 }
+
+const diasDelMes = (mes, anio) => new Date(anio, mes, 0).getDate()
+const montoVigente = (localId, mes, anio) =>
+  CUOTA_DIARIA[localId] ? CUOTA_DIARIA[localId] * diasDelMes(mes, anio) : (MONTO_MENSUAL[localId] ?? 0)
+// Si el mes ya tiene abonos, manda el acordado guardado en ellos (se puede ajustar a mano en un abono);
+// si no, se calcula con la cuota vigente. Cada mes se evalúa solo contra su propio acordado.
+const acordadoDe = (localId, pagosLocal, mes, anio) => pagosLocal.length > 0
+  ? Math.max(...pagosLocal.map(p => Number(p.monto_acordado ?? 0)))
+  : montoVigente(localId, mes, anio)
+
+const ANIOS = Array.from({ length: new Date().getFullYear() + 1 - 2024 + 1 }, (_, i) => 2024 + i)
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
@@ -129,14 +143,7 @@ function ModalAbono({ local, mes, anio, montoAcordado, abono, onClose, onSaved }
 
 function FilaLocal({ local, pagos, mes, anio, onAbonar, onEditAbono, onDeleteAbono }) {
   const [expanded, setExpanded] = useState(false)
-  // Si ya hay pagos registrados para este período, el acordado real queda
-  // guardado en esos registros (puede ser distinto al monto vigente hoy,
-  // ej. si se cambió la tarifa a mitad de mes). Si no hay pagos todavía,
-  // se usa el monto acordado vigente. Cada mes se evalúa solo contra su
-  // propio acordado, sin arrastrar deuda de meses anteriores.
-  const montoAcordado = pagos.length > 0
-    ? Math.max(...pagos.map(p => Number(p.monto_acordado ?? 0)))
-    : (MONTOS_ACORDADOS[local.id] ?? 0)
+  const montoAcordado = acordadoDe(local.id, pagos, mes, anio)
   const totalPagado = pagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
   const pct = montoAcordado > 0 ? Math.min((totalPagado / montoAcordado) * 100, 100) : 0
   const saldo = montoAcordado - totalPagado
@@ -152,7 +159,10 @@ function FilaLocal({ local, pagos, mes, anio, onAbonar, onEditAbono, onDeleteAbo
       <tr className="hover:bg-gray-800/40 transition-colors">
         <td className="px-5 py-3.5 font-medium text-gray-200">{local.nombre}</td>
         <td className="px-5 py-3.5 text-gray-400 text-sm">{local.ciudad}</td>
-        <td className="px-5 py-3.5 text-right text-gray-300">{fmt(montoAcordado)}</td>
+        <td className="px-5 py-3.5 text-right text-gray-300">
+          {fmt(montoAcordado)}
+          {CUOTA_DIARIA[local.id] && <p className="text-xs text-gray-500">{fmt(CUOTA_DIARIA[local.id])} × {diasDelMes(mes, anio)} días</p>}
+        </td>
         <td className="px-5 py-3.5">
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-gray-800 rounded-full h-1.5 min-w-[60px]">
@@ -233,11 +243,12 @@ export default function Subarriendos() {
     await loadAll()
   }
 
-  const totalAcordado = locales.reduce((a, l) => a + (MONTOS_ACORDADOS[l.id] ?? 0), 0)
+  const acordadoLocal = (l) => acordadoDe(l.id, pagos.filter(p => p.local_id === l.id), mes, anio)
+  const totalAcordado = locales.reduce((a, l) => a + acordadoLocal(l), 0)
   const totalPagado = pagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0)
   const pagadosCompletos = locales.filter(l => {
     const lPagos = pagos.filter(p => p.local_id === l.id)
-    return lPagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0) >= (MONTOS_ACORDADOS[l.id] ?? 0)
+    return lPagos.reduce((a, p) => a + Number(p.monto_pagado ?? 0), 0) >= acordadoLocal(l)
   }).length
 
   return (
@@ -252,7 +263,7 @@ export default function Subarriendos() {
             {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
           <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="flex-1 sm:flex-none bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
-            {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+            {ANIOS.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button onClick={loadAll} className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors">
             <RefreshCw size={13} />
@@ -313,12 +324,7 @@ export default function Subarriendos() {
           abono={modal.abono}
           mes={mes}
           anio={anio}
-          montoAcordado={(() => {
-            const pagosLocal = pagos.filter(p => p.local_id === modal.local.id)
-            return pagosLocal.length > 0
-              ? Math.max(...pagosLocal.map(p => Number(p.monto_acordado ?? 0)))
-              : (MONTOS_ACORDADOS[modal.local.id] ?? 0)
-          })()}
+          montoAcordado={acordadoDe(modal.local.id, pagos.filter(p => p.local_id === modal.local.id), mes, anio)}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); loadAll() }}
         />

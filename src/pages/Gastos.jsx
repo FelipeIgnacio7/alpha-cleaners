@@ -19,11 +19,11 @@ const METODO_LABEL = Object.fromEntries(METODOS_PAGO.map(m => [m.value, m.label]
 
 const mesActual = () => new Date().toISOString().slice(0, 7)
 
-// Meses para el filtro: desde 2024-01 hasta 3 meses adelante (las cuotas caen en meses futuros)
+// Meses para el filtro: desde 2024-01 hasta 12 meses adelante (las cuotas caen en meses futuros)
 function opcionesMes() {
   const out = []
   const hoy = new Date()
-  const fin = new Date(hoy.getFullYear(), hoy.getMonth() + 3, 1)
+  const fin = new Date(hoy.getFullYear(), hoy.getMonth() + 12, 1)
   for (let d = new Date(fin); d >= new Date(2024, 0, 1); d.setMonth(d.getMonth() - 1)) {
     out.push({ value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: `${MESES[d.getMonth()]} ${d.getFullYear()}` })
   }
@@ -80,7 +80,7 @@ export default function Gastos() {
 
   const avisar = (text) => { setSuccess(text); setTimeout(() => setSuccess(null), 3000) }
   const cuotasPrevia = form.es_cuotas && Number(form.num_cuotas) >= 2 && Number(form.monto) > 0 && !editando
-    ? dividirEnCuotas({ monto: form.monto, cuotas: form.num_cuotas, fecha: form.fecha })
+    ? dividirEnCuotas({ monto: form.monto, cuotas: form.num_cuotas, fecha: form.fecha, metodo: form.metodo_pago })
     : null
 
   async function handleSubmit(e) {
@@ -106,7 +106,7 @@ export default function Gastos() {
       const total = Math.round(Number(form.monto))
       const n = cuotasPrevia.length
       ;({ error } = await supabase.from('gastos').insert(cuotasPrevia.map(c => ({
-        ...base, monto: c.monto, fecha: c.fecha, notas: notaCuota(c.numero, n, total, form.notas),
+        ...base, monto: c.monto, fecha: c.fecha, notas: notaCuota(c.numero, n, total, form.notas, form.fecha),
         metodo_carga: 'manual', es_cuotas: true, num_cuotas: n,
       }))))
     } else {
@@ -244,7 +244,7 @@ export default function Gastos() {
                     onChange={e => setForm(f => ({ ...f, es_cuotas: e.target.checked, num_cuotas: e.target.checked ? f.num_cuotas : '' }))}
                     className="rounded border-gray-700 bg-gray-800"
                   />
-                  Pago en cuotas (el total se divide en una cuota por mes)
+                  Pago en cuotas (una por mes; con tarjeta se anota en el mes en que se paga, según facturación del día 24)
                 </label>
                 {cuotasPrevia && (
                   <p className="text-xs text-purple-300 mt-2">
