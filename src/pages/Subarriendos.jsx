@@ -7,10 +7,10 @@ const fmt = (n) =>
 
 // Monto de subarriendo mensual acordado por local (mismo monto todos los meses)
 const MONTOS_ACORDADOS = {
-  3: 5620000, // Mall Plaza Alameda: $5.400.000 arriendo + $220.000 gastos comunes
-  4: 7245000, // Mall Curicó: $7.000.000 arriendo + $245.000 gastos comunes (subarrendado; independiente de las ventas propias de Curicó)
+  3: 5400000, // Mall Plaza Alameda: 180.000 x 30
+  4: 7500000, // Mall Curicó: 250.000 x 30 (subarrendado; independiente de las ventas propias de Curicó)
   5: 3334000, // Tottus Santa Marta: todo incluido
-  6: 2100000, // Líder Vicuña Mackenna: todo incluido
+  6: 2700000, // Líder Vicuña Mackenna: 90.000 x 30
   7: 2110000, // Ciudad Satélite de Maipú: $1.960.000 arriendo + $150.000 gastos comunes
   8: 1400000, // Copiapó: todo incluido
   10: 0, // Mall Plaza Norte: monto pendiente de definir
