@@ -10,20 +10,19 @@ export function sumarMeses(fecha, meses) {
   return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(Math.min(d, ultimo))}`
 }
 
-// Las tarjetas de crédito facturan el día 24: lo comprado hasta el 24 entra en la facturación de ese mes y se paga
-// a comienzos del mes siguiente; lo comprado después del 24 entra en la facturación siguiente y se paga un mes después.
+// Las tarjetas de crédito facturan el día 24 y la cuota corresponde al mes de esa facturación (se paga ese mes, con
+// plazo hasta los primeros días del siguiente): lo comprado hasta el 24 parte ese mismo mes; después del 24, el siguiente.
 export const DIA_FACTURACION = 24
-export const DIA_PAGO = 5   // día con que queda anotada cada cuota dentro del mes en que se paga
 
-// Fecha de pago de la primera cuota de una compra con tarjeta hecha el `fechaCompra` (YYYY-MM-DD)
+// Fecha (facturación) de la primera cuota de una compra con tarjeta hecha el `fechaCompra` (YYYY-MM-DD)
 export function fechaPrimeraCuota(fechaCompra) {
   const [y, m, d] = fechaCompra.split('-').map(Number)
-  const base = new Date(y, m - 1 + (d > DIA_FACTURACION ? 2 : 1), 1)
-  return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(DIA_PAGO)}`
+  const base = new Date(y, m - 1 + (d > DIA_FACTURACION ? 1 : 0), 1)
+  return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(DIA_FACTURACION)}`
 }
 
 // Divide un total en N cuotas mensuales. Los pesos sobrantes van a la última. Con tarjeta, la primera cuota cae en el
-// mes en que se paga según la facturación; con otros medios, desde la fecha de compra.
+// mes de la facturación que incluye la compra; con otros medios, desde la fecha de compra.
 // Cada cuota queda como un gasto propio, así el gasto de cada mes muestra solo lo que corresponde pagar ese mes.
 export function dividirEnCuotas({ monto, cuotas, fecha, metodo }) {
   const primera = metodo === 'tarjeta' && fecha ? fechaPrimeraCuota(fecha) : fecha
