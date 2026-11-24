@@ -244,7 +244,7 @@ export default function Gastos() {
                     onChange={e => setForm(f => ({ ...f, es_cuotas: e.target.checked, num_cuotas: e.target.checked ? f.num_cuotas : '' }))}
                     className="rounded border-gray-700 bg-gray-800"
                   />
-                  Pago en cuotas (una por mes; con tarjeta se anota en el mes en que se paga, según facturación del día 24)
+                  Pago en cuotas (una por mes; con tarjeta parte en el mes de la facturación del día 24)
                 </label>
                 {cuotasPrevia && (
                   <p className="text-xs text-purple-300 mt-2">
