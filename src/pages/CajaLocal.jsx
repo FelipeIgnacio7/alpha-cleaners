@@ -10,7 +10,7 @@ import { nombreParaSaludo } from '../lib/reactivacion'
 import {
   LOCAL_FONTOVA, TAMANOS, MEDIOS, fmt, hoyLocal, horaLocal, normalizePatente, nombreServicio,
   precioServicio, patronPatente, descuentoVigente, calcularTrabajo, cobradoDe, resumenDia, buscarPatente, tipoUsoMembresia,
-  RECARGO_CREDITO,
+  RECARGO_CREDITO, esLavado, agregarItem,
 } from '../lib/caja'
 
 // Caja del local (reemplazo de Aquapp en Fontova). Se entra con /local/<CAJA_TOKEN> y el PIN del local.
@@ -26,6 +26,7 @@ const VENTAS_HASH = '345dba34fd1b71be9f260a370501d909e6e6791a5cb41a2acc73f57a7b4
 const VENTAS_KEY = 'alpha:caja-ventas'
 // Desde esta fecha las ventas salen de la caja propia; antes, de lo cargado desde Aquapp
 const CAJA_DESDE = '2026-11-11'
+const DIAS_ATRAS = 7   // hasta cuántos días hacia atrás se puede fechar un trabajo o un pago
 const LOCAL_NOMBRE = 'Fontova'
 const LOCAL_DIRECCION = 'Av. Pedro Fontova 7420'
 
@@ -142,7 +143,7 @@ function PinGate({ children }) {
 }
 
 // ---------- Registrar cobro (como Aquapp: primero "¿Dónde ingresó el dinero?") ----------
-function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
+function ModalCobro({ trabajo, pendiente, fechaInicial, onListo, onCerrar }) {
   const [medio, setMedio] = useState(null)
   const [monto, setMonto] = useState(String(pendiente))
   const [conRecargo, setConRecargo] = useState(true)
@@ -153,9 +154,10 @@ function ModalCobro({ trabajo, pendiente, onListo, onCerrar }) {
   // Fecha del pago: normalmente hoy; si el cliente pagó otro día y no alcanzaron a registrarlo, se puede dejar en el día que corresponde
   const hoy = hoyLocal()
   const ayer = hoyLocal(new Date(Date.now() - 86400000))
-  const minFecha = [trabajo.fecha, hoyLocal(new Date(Date.now() - 7 * 86400000))].sort().pop()
-  const [diaPago, setDiaPago] = useState('hoy')   // hoy | ayer | otro
-  const [otraFecha, setOtraFecha] = useState(ayer)
+  const minFecha = [trabajo.fecha, hoyLocal(new Date(Date.now() - DIAS_ATRAS * 86400000))].sort().pop()
+  // fechaInicial: al ingresar un trabajo de un día anterior, el cobro parte con esa misma fecha
+  const [diaPago, setDiaPago] = useState(!fechaInicial || fechaInicial === hoy ? 'hoy' : fechaInicial === ayer ? 'ayer' : 'otro')   // hoy | ayer | otro
+  const [otraFecha, setOtraFecha] = useState(fechaInicial || ayer)
   const fechaPago = diaPago === 'hoy' ? hoy : diaPago === 'ayer' ? ayer : otraFecha
   const puedeOtroDia = (trabajo.fecha || hoy) < hoy
   const recibido = Number(monto) || 0
@@ -301,12 +303,13 @@ function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobr
   }
   function agregarServicio(sv) {
     const p = precioServicio(sv, trabajo.tamano)
-    setItems(prev => [...prev, { key: `n${Date.now()}${Math.random()}`, servicio_id: sv.id, nombre: nombreServicio(sv), nombre_base: sv.nombre, precio: p ?? 0, es_membresia: sv.es_membresia }])
+    setItems(prev => agregarItem(prev, { key: `n${Date.now()}${Math.random()}`, servicio_id: sv.id, nombre: nombreServicio(sv), nombre_base: sv.nombre, precio: p ?? 0, es_membresia: sv.es_membresia }))
     setFiltro('')
   }
   const cambiarPrecio = (key, v) => setItems(prev => prev.map(i => i.key === key ? { ...i, precio: v === '' ? '' : Number(v) } : i))
   async function guardarEdicion() {
     if (items.length === 0) return setErrorEd('El trabajo debe tener al menos un servicio.')
+    if (items.filter(esLavado).length > 1) return setErrorEd('Va un solo lavado por vehículo: quita el que sobra.')
     if (items.some(i => i.precio === '' || Number(i.precio) < 0)) return setErrorEd('Hay un servicio sin precio.')
     if (calcEd.total < cobrado) return setErrorEd(`Ya se cobraron ${fmt(cobrado)}, más que el nuevo total (${fmt(calcEd.total)}). Pide a la administración que corrija el cobro.`)
     setGuardando(true)
@@ -367,7 +370,7 @@ function ModalAcciones({ trabajo, pagos, propinas, servicios, descuentos, onCobr
       </>}>
       {editando ? (
         <>
-          <p className="text-xs text-slate-500">Cambia los precios, quita servicios o agrega otros. Lo ya cobrado ({fmt(cobrado)}) se mantiene.</p>
+          <p className="text-xs text-slate-500">Cambia los precios, quita servicios o agrega otros. Lo ya cobrado ({fmt(cobrado)}) se mantiene. Va un solo lavado por vehículo: si eliges otro, reemplaza al que está.</p>
           <div className="rounded-xl bg-white/60 border border-slate-200/70 p-2 space-y-1.5">
             {items.map(it => (
               <div key={it.key} className="flex items-center gap-2">
@@ -499,6 +502,12 @@ function Resumen({ r }) {
   )
 }
 
+// Qué le falta a un trabajo de otro día: cobrar, terminar o ambas
+function detallePendiente(t, pagos) {
+  const saldo = Number(t.total) - cobradoDe(t, pagos)
+  return [saldo > 0.5 ? `debe ${fmt(saldo)}` : null, t.estado === 'ingresado' ? 'sin finalizar' : null].filter(Boolean).join(' · ')
+}
+
 function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda, onNuevo, onAbrir, onHistorial }) {
   const q = busqueda.trim().toLowerCase()
   const visibles = trabajos.filter(t => !t.anulado)
@@ -535,17 +544,17 @@ function VistaTrabajos({ trabajos, pagos, anteriores, pagosAnteriores, busqueda,
           <button onClick={() => setVerPend(true)}
             className="w-full mb-5 flex items-center gap-2 rounded-2xl border border-amber-300/70 bg-amber-50/70 hover:bg-amber-50 px-4 py-3 text-left transition">
             <Flag size={16} className="text-amber-700 shrink-0" />
-            <span className="flex-1 text-sm font-semibold text-amber-800">Servicios sin terminar de días anteriores</span>
+            <span className="flex-1 text-sm font-semibold text-amber-800">Pendientes de días anteriores (por cobrar o terminar)</span>
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">{pendAnt.length}</span>
             <ChevronDown size={16} className="text-amber-700" />
           </button>
         )}
         {verPend && (
-          <Modal titulo="Sin terminar de días anteriores" onCerrar={() => setVerPend(false)}
+          <Modal titulo="Pendientes de días anteriores" onCerrar={() => setVerPend(false)}
             subtitulo={<p className="text-xs text-slate-500 mt-0.5">Toca un trabajo para finalizarlo, cobrarlo o entregarlo.</p>}>
             {pendAnt.map(t => (
               <div key={t.id}>
-                <p className="text-[11px] text-amber-700 ml-1 mb-0.5">Ingresó el {ddmm(t.fecha)}</p>
+                <p className="text-[11px] text-amber-700 ml-1 mb-0.5">Ingresó el {ddmm(t.fecha)} · {detallePendiente(t, pagosAnteriores)}</p>
                 <FilaTrabajo t={t} pagos={pagosAnteriores} onClick={() => { setVerPend(false); onAbrir(t) }} />
               </div>
             ))}
@@ -586,6 +595,16 @@ async function traerTodo(consulta) {
   return out
 }
 
+// Un día sale de la caja propia solo si ese mismo día se usó el link. Un trabajo ingresado después, con fecha
+// anterior, no "convierte" ese día: se suma a lo de Aquapp (sin repetir la patente).
+const usadoEseDia = (t) => Boolean(t.created_at) && hoyLocal(new Date(t.created_at)) === t.fecha
+function unirFuentes(aq, tr, marcas) {
+  const dias = new Set(marcas.filter(usadoEseDia).map(t => t.fecha))
+  const deAquapp = aq.filter(r => !dias.has(r.fecha))
+  const repetidos = new Set(deAquapp.map(r => `${r.fecha}|${normalizePatente(r.patente)}`))
+  return { deAquapp, deCaja: tr.filter(t => dias.has(t.fecha) || !repetidos.has(`${t.fecha}|${normalizePatente(t.patente)}`)) }
+}
+
 // Unifica Aquapp y la caja propia en filas { fecha, cliente, patente, servicio, vendido, cobrado }.
 // Cada día se toma de la caja propia si ese día se usó el link; si no (ej. fines de semana), de lo cargado desde Aquapp.
 async function cargarVentas(desde, hasta) {
@@ -595,14 +614,15 @@ async function cargarVentas(desde, hasta) {
   let tr = [], cob = {}
   if (hasta >= CAJA_DESDE) {
     const d2 = desde > CAJA_DESDE ? desde : CAJA_DESDE
-    tr = await traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, items, total, anulado')
+    tr = await traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, items, total, anulado, created_at')
       .eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).eq('anulado', false).order('created_at'))
-    const pg = await traerTodo(() => supabase.from('caja_pagos').select('id, trabajo_id, monto').eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).lte('fecha', hasta).order('id'))
+    // Sin tope de fecha: el saldo de un trabajo puede pagarse días después, incluso el mes siguiente
+    const pg = await traerTodo(() => supabase.from('caja_pagos').select('id, trabajo_id, monto').eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).order('id'))
     pg.forEach(p => { cob[p.trabajo_id] = (cob[p.trabajo_id] || 0) + Number(p.monto) })
   }
-  const diasCaja = new Set(tr.map(t => t.fecha))
-  aq.filter(r => !diasCaja.has(r.fecha)).forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
-  tr.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
+  const { deAquapp, deCaja } = unirFuentes(aq, tr, tr)
+  deAquapp.forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
+  deCaja.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
   return filas
 }
 const moverDiaStr = (f, n) => { const [y, m, d] = f.split('-').map(Number); const x = new Date(y, m - 1, d + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
@@ -705,14 +725,14 @@ async function buscarHistorial(texto) {
   const [aq, tr, diasCaja] = await Promise.all([
     traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, marca, modelo, servicios, monto, descuento, es_membresia')
       .eq('local_id', LOCAL_FONTOVA).or(filtros.join(',')).order('id')),
-    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, marca, modelo, items, total, anulado')
+    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, marca, modelo, items, total, anulado, created_at')
       .eq('local_id', LOCAL_FONTOVA).eq('anulado', false).or(filtros.join(',')).order('created_at')),
-    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha').eq('local_id', LOCAL_FONTOVA).eq('anulado', false).gte('fecha', CAJA_DESDE).order('id')),
+    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, created_at').eq('local_id', LOCAL_FONTOVA).eq('anulado', false).gte('fecha', CAJA_DESDE).order('id')),
   ])
-  const dias = new Set(diasCaja.map(d => d.fecha))
+  const { deAquapp, deCaja } = unirFuentes(aq, tr, diasCaja)
   const filas = [
-    ...aq.filter(r => !dias.has(r.fecha)).map(r => ({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, vehiculo: [r.marca, r.modelo].filter(Boolean).join(' '), servicio: r.servicios, monto: Number(r.monto) - Number(r.descuento || 0), membresia: r.es_membresia })),
-    ...tr.map(t => ({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, vehiculo: [t.marca, t.modelo].filter(Boolean).join(' '), servicio: (t.items || []).map(i => i.nombre).join(' | '), monto: Number(t.total), membresia: (t.items || []).some(i => i.es_membresia) })),
+    ...deAquapp.map(r => ({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, vehiculo: [r.marca, r.modelo].filter(Boolean).join(' '), servicio: r.servicios, monto: Number(r.monto) - Number(r.descuento || 0), membresia: r.es_membresia })),
+    ...deCaja.map(t => ({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, vehiculo: [t.marca, t.modelo].filter(Boolean).join(' '), servicio: (t.items || []).map(i => i.nombre).join(' | '), monto: Number(t.total), membresia: (t.items || []).some(i => i.es_membresia) })),
   ]
   // Un "cliente" = patente (si tiene) o nombre
   const grupos = {}
@@ -881,7 +901,8 @@ function PanelMembresia({ membresia, servicios, items, onAgregar, onQuitar }) {
             }
             const nuevo = nuevosInt[i - usadosInt.length]
             // Solo se puede marcar el siguiente lavado disponible (en orden) y nunca más que el cupo del mes
-            const habilitado = Boolean(nuevo) || i === usadosInt.length + nuevosInt.length
+            // Además, un vehículo lleva un solo lavado: con uno marcado no se puede marcar otro
+            const habilitado = Boolean(nuevo) || (nuevosInt.length === 0 && i === usadosInt.length)
             return (
               <label key={i} className={`flex items-center gap-2 text-sm ${nuevo ? 'text-amber-800 font-medium' : habilitado ? 'text-slate-700' : 'text-slate-400'}`}>
                 <input type="checkbox" className="w-4 h-4" checked={Boolean(nuevo)} disabled={!habilitado}
@@ -918,6 +939,16 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
   const ahora = useRef(new Date()).current
+  // Fecha del trabajo: normalmente hoy; se puede ingresar uno de días anteriores que quedó anotado en papel
+  const hoy = hoyLocal()
+  const ayer = hoyLocal(new Date(Date.now() - 86400000))
+  const minFecha = [CAJA_DESDE, hoyLocal(new Date(Date.now() - DIAS_ATRAS * 86400000))].sort().pop()
+  const [dia, setDia] = useState('hoy')   // hoy | ayer | otro
+  const [otraFecha, setOtraFecha] = useState(ayer)
+  const [horaPasada, setHoraPasada] = useState(horaLocal(ahora).slice(0, 5))
+  const fechaTrabajo = dia === 'hoy' ? hoy : dia === 'ayer' ? ayer : otraFecha
+  const esPasado = fechaTrabajo < hoy
+  const [yaEntregado, setYaEntregado] = useState(true)   // solo para trabajos de días anteriores
   const ultimaBuscada = useRef('')
   const autollenado = useRef({})   // campos que llenó la búsqueda (se reemplazan si cambia la patente)
   const patenteActual = useRef('')
@@ -927,7 +958,7 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
   serviciosRef.current = servicios
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const vigentes = descuentos.filter(d => descuentoVigente(d))
+  const vigentes = descuentos.filter(d => descuentoVigente(d, fechaTrabajo))
   const descuento = vigentes.find(d => String(d.id) === String(descuentoId)) || null
   const calc = calcularTrabajo(items, descuento)
   const rapidos = servicios.filter(s => s.orden <= 6 && !s.es_membresia)
@@ -986,10 +1017,10 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
 
   function agregar(s) {
     const p = precioServicio(s, form.tamano)
-    setItems(prev => [...prev, {
+    setItems(prev => agregarItem(prev, {
       key: `${s.id}-${Date.now()}-${Math.random()}`, servicio_id: s.id, nombre: nombreServicio(s), nombre_base: s.nombre,
       precio: p ?? 0, sinPrecio: p === null, manual: false, es_membresia: s.es_membresia,
-    }])
+    }))
     setFiltro('')
   }
   const quitar = (key) => setItems(prev => prev.filter(x => x.key !== key))
@@ -1001,6 +1032,8 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
     if (!patente) return setMsg({ ok: false, text: 'Falta la patente del vehículo.' })
     if (!form.tamano) return setMsg({ ok: false, text: 'Elige el tamaño del vehículo.' })
     if (items.length === 0) return setMsg({ ok: false, text: 'Agrega al menos un servicio.' })
+    if (items.filter(esLavado).length > 1) return setMsg({ ok: false, text: 'Va un solo lavado por vehículo: quita el que sobra.' })
+    if (!fechaTrabajo || fechaTrabajo > hoy || fechaTrabajo < minFecha) return setMsg({ ok: false, text: `La fecha del trabajo debe estar entre el ${ddmm(minFecha)} y hoy.` })
     if (items.some(it => it.precio === '' || (it.sinPrecio && !it.es_membresia))) {
       return setMsg({ ok: false, text: 'Hay un servicio sin precio. Escríbelo antes de crear el trabajo.' })
     }
@@ -1012,10 +1045,10 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
     }
     setSaving(true)
     const ya = new Date()
-    const { error } = await supabase.from('caja_trabajos').insert({
+    const { data: creado, error } = await supabase.from('caja_trabajos').insert({
       local_id: LOCAL_FONTOVA,
-      fecha: hoyLocal(ya),
-      hora: horaLocal(ya),
+      fecha: esPasado ? fechaTrabajo : hoyLocal(ya),
+      hora: esPasado ? `${horaPasada || '12:00'}:00` : horaLocal(ya),
       patente,
       cliente: form.cliente.trim() || null,
       telefono: form.telefono.trim() || null,
@@ -1030,9 +1063,11 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
       total: calc.total,
       campana: descuento?.campana ?? null,
       notas: form.notas.trim() || null,
-    })
+      ...(esPasado && yaEntregado ? { estado: 'entregado', finalizado_at: ya.toISOString(), entregado_at: ya.toISOString() } : {}),
+    }).select('*').single()
     setSaving(false)
     if (error) return setMsg({ ok: false, text: 'No se pudo crear el trabajo. Revisa la conexión e intenta de nuevo.' })
+    if (esPasado) return onGuardado(`Trabajo de ${patente} guardado con fecha ${ddmm(fechaTrabajo)}.`, creado)
     onGuardado(`Trabajo de ${patente} creado. Cuando pague, tócalo y elige "Registrar cobro".`)
   }
 
@@ -1042,15 +1077,27 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
         <button onClick={onCerrar} className={`${btnSecundario} px-5 py-2.5`}>Cerrar</button>
         <button onClick={crear} disabled={saving} className={`${btnPrimario} px-5 py-2.5`}>{saving ? 'Creando...' : `Crear trabajo · ${fmt(calc.total)}`}</button>
       </>}>
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <div className="rounded-xl bg-white/60 border border-slate-200/70 px-3 py-2">
-          <p className="text-[10px] text-slate-400">Fecha de ingreso</p>
-          <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5"><CalendarDays size={14} /> {ahora.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+      <div className="rounded-2xl bg-white/60 border border-slate-200/70 p-3 space-y-2">
+        <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><CalendarDays size={14} /> ¿De qué día es el trabajo?</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          <button type="button" onClick={() => setDia('hoy')} className={chip(dia === 'hoy')}>Hoy</button>
+          <button type="button" disabled={ayer < minFecha} onClick={() => setDia('ayer')} className={chip(dia === 'ayer')}>Ayer</button>
+          <button type="button" onClick={() => setDia('otro')} className={chip(dia === 'otro')}>Otro día</button>
         </div>
-        <div className="rounded-xl bg-white/60 border border-slate-200/70 px-3 py-2">
-          <p className="text-[10px] text-slate-400">Horario</p>
-          <p className="text-sm font-medium text-slate-800">{horaLocal(ahora).slice(0, 5)}</p>
+        {dia === 'otro' && <input type="date" min={minFecha} max={hoy} value={otraFecha} onChange={e => e.target.value && setOtraFecha(e.target.value)} className={inputCls} />}
+        <div className="flex items-center justify-between gap-2 text-sm font-medium text-slate-800">
+          <span>Ingreso: {fechaTrabajo.split('-').reverse().join('-')}</span>
+          {esPasado
+            ? <input type="time" value={horaPasada} onChange={e => setHoraPasada(e.target.value)} aria-label="Hora de ingreso" className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-base" />
+            : <span>{horaLocal(ahora).slice(0, 5)}</span>}
         </div>
+        {esPasado && (<>
+          <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
+            <input type="checkbox" checked={yaEntregado} onChange={e => setYaEntregado(e.target.checked)} className="w-4 h-4" />
+            El auto ya se entregó
+          </label>
+          <p className="text-xs text-amber-700">Se guarda con fecha {ddmm(fechaTrabajo)} y después se abre el cobro con esa misma fecha. Si ya estaba ingresado (aquí o en Aquapp), no lo repitas.</p>
+        </>)}
       </div>
 
       {/* Vehículo */}
@@ -1100,13 +1147,16 @@ function ModalNuevoTrabajo({ servicios, descuentos, onGuardado, onCerrar }) {
 
       {/* Servicios */}
       <div className="space-y-2">
-        <label className={labelCls}>Servicio/s *</label>
+        <label className={labelCls}>Servicio/s * · un solo lavado por vehículo (si eliges otro, lo reemplaza)</label>
         <div className="flex flex-wrap gap-2">
-          {rapidos.map(s => (
-            <button key={s.id} type="button" onClick={() => agregar(s)} className={`${chip(false)} text-left`}>
-              + {nombreServicio(s)} <span className="text-xs text-slate-400 font-normal">· {etiquetaPrecio(s)}</span>
-            </button>
-          ))}
+          {rapidos.map(s => {
+            const puesto = esLavado(s) && items.some(i => i.servicio_id === s.id)
+            return (
+              <button key={s.id} type="button" disabled={puesto} onClick={() => agregar(s)} className={`${chip(puesto)} text-left`}>
+                {puesto ? '✓' : '+'} {nombreServicio(s)} <span className={`text-xs font-normal ${puesto ? 'opacity-70' : 'text-slate-400'}`}>· {etiquetaPrecio(s)}</span>
+              </button>
+            )
+          })}
         </div>
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1274,11 +1324,12 @@ function PropinasAcumuladas({ refrescar }) {
   )
 }
 
-function VistaCaja({ trabajos, pagos, gastos, propinas, onNuevoMovimiento }) {
+function VistaCaja({ trabajos, anteriores, pagos, gastos, propinas, onNuevoMovimiento }) {
   const gastosEfectivo = gastos.filter(g => g.metodo_pago === 'efectivo').reduce((a, g) => a + Number(g.monto), 0)
   const totalGastos = gastos.reduce((a, g) => a + Number(g.monto), 0)
   const r = resumenDia(trabajos, pagos, gastosEfectivo, propinas)
-  const porId = Object.fromEntries(trabajos.map(t => [t.id, t]))
+  // Los cobros de hoy pueden ser de trabajos de días anteriores
+  const porId = Object.fromEntries([...anteriores, ...trabajos].map(t => [t.id, t]))
   const movimientos = [
     ...propinas.map(pr => ({ tipo: 'propina', ts: pr.created_at, monto: Number(pr.monto), pr, t: porId[pr.trabajo_id] })),
     ...pagos.map(p => ({ tipo: 'ingreso', ts: p.created_at, monto: Number(p.monto) + Number(p.recargo || 0), p, t: porId[p.trabajo_id] })),
@@ -1418,6 +1469,7 @@ function Caja() {
   const [propinas, setPropinas] = useState([])
   const [anteriores, setAnteriores] = useState([])
   const [pagosAnteriores, setPagosAnteriores] = useState([])
+  const [idsPendientes, setIdsPendientes] = useState(() => new Set())
   const [pagosOtroDia, setPagosOtroDia] = useState([])   // pagos de trabajos de hoy registrados con fecha de otro día
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
@@ -1426,19 +1478,28 @@ function Caja() {
 
   const cargarDia = useCallback(async () => {
     const hoy = hoyLocal()
-    const [t, p, g, pr, ant] = await Promise.all([
+    const desde = moverDiaStr(hoy, -60)
+    const [t, p, g, pr, prev] = await Promise.all([
       supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('caja_pagos').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('gastos').select('id, monto, proveedor, notas, metodo_pago, created_at, categorias_gasto(nombre)').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
       supabase.from('caja_propinas').select('*').eq('local_id', LOCAL_FONTOVA).eq('fecha', hoy),
-      // Trabajos de días anteriores que siguen sin finalizar: deben poder cerrarse hoy
-      supabase.from('caja_trabajos').select('*').eq('local_id', LOCAL_FONTOVA).eq('estado', 'ingresado').eq('anulado', false).lt('fecha', hoy),
+      // Trabajos de días anteriores (con sus pagos) para ver cuáles quedan por terminar o por cobrar
+      traerTodo(() => supabase.from('caja_trabajos').select('id, estado, total, caja_pagos(*)').eq('local_id', LOCAL_FONTOVA)
+        .eq('anulado', false).lt('fecha', hoy).or(`estado.eq.ingresado,fecha.gte.${desde}`).order('id')).catch(() => null),
     ])
-    const antData = ant.data ?? []
-    setAnteriores(antData)
-    if (antData.length) {
-      supabase.from('caja_pagos').select('*').in('trabajo_id', antData.map(x => x.id)).then(({ data: pa }) => setPagosAnteriores(pa ?? []))
-    } else setPagosAnteriores([])
+    if (prev) {
+      // Pendiente = sin finalizar, o con saldo aunque el auto ya se haya entregado
+      const pend = new Set(prev.filter(x => x.estado === 'ingresado' || Number(x.total) - cobradoDe(x, x.caja_pagos || []) > 0.5).map(x => x.id))
+      // También se necesitan los trabajos antiguos que se cobraron hoy (para mostrarlos en la caja)
+      const ids = [...new Set([...pend, ...(p.data ?? []).map(x => x.trabajo_id).filter(id => prev.some(x => x.id === id))])]
+      const completos = ids.length ? await supabase.from('caja_trabajos').select('*').in('id', ids) : { data: [] }
+      if (completos.data) {
+        setPagosAnteriores(prev.flatMap(x => x.caja_pagos || []))
+        setAnteriores(completos.data)
+        setIdsPendientes(pend)
+      }
+    }
     if (t.error || p.error) setMsg({ ok: false, text: 'No se pudieron cargar los datos. Revisa la conexión.' })
     const idsHoy = (t.data ?? []).map(x => x.id)
     if (idsHoy.length) supabase.from('caja_pagos').select('*').in('trabajo_id', idsHoy).neq('fecha', hoy).then(({ data: po }) => setPagosOtroDia(po ?? []))
@@ -1474,9 +1535,11 @@ function Caja() {
   function aviso(text, ok = true) { setMsg({ ok, text }); setTimeout(() => setMsg(null), 5000) }
   const trabajoActual = modal?.trabajo ? [...trabajos, ...anteriores].find(t => t.id === modal.trabajo.id) || modal.trabajo : null
   const pagosTrabajosHoy = useMemo(() => [...pagos, ...pagosOtroDia], [pagos, pagosOtroDia])
-  const todosPagos = useMemo(() => [...pagosTrabajosHoy, ...pagosAnteriores], [pagosTrabajosHoy, pagosAnteriores])
+  // Sin repetidos: un cobro de hoy a un trabajo anterior viene en las dos listas
+  const todosPagos = useMemo(() => [...new Map([...pagosAnteriores, ...pagosTrabajosHoy].map(p => [p.id, p])).values()], [pagosTrabajosHoy, pagosAnteriores])
   const pendienteActual = trabajoActual ? Math.max(0, Number(trabajoActual.total) - cobradoDe(trabajoActual, todosPagos)) : 0
-  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagosTrabajosHoy).conDeuda + anteriores.length, [trabajos, pagosTrabajosHoy, anteriores])
+  const pendientesAnteriores = useMemo(() => anteriores.filter(t => idsPendientes.has(t.id)), [anteriores, idsPendientes])
+  const pendientesHoy = useMemo(() => resumenDia(trabajos, pagosTrabajosHoy).conDeuda + pendientesAnteriores.length, [trabajos, pagosTrabajosHoy, pendientesAnteriores])
 
   return (
     <div className="min-h-screen relative text-slate-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif' }}>
@@ -1520,8 +1583,8 @@ function Caja() {
           {loading ? <div className={`${glass} rounded-3xl p-10 text-center text-slate-500`}>Cargando...</div> : (
             vista === 'ventas' ? <VistaVentas busqueda={busqueda} />
             : vista === 'trabajos'
-              ? <VistaTrabajos trabajos={trabajos} pagos={pagosTrabajosHoy} anteriores={anteriores} pagosAnteriores={pagosAnteriores} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} onHistorial={() => setVista('ventas')} />
-              : <VistaCaja trabajos={trabajos} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
+              ? <VistaTrabajos trabajos={trabajos} pagos={pagosTrabajosHoy} anteriores={pendientesAnteriores} pagosAnteriores={todosPagos} busqueda={busqueda} onNuevo={() => setModal({ tipo: 'nuevo' })} onAbrir={(t) => setModal({ tipo: 'acciones', trabajo: t })} onHistorial={() => setVista('ventas')} />
+              : <VistaCaja trabajos={trabajos} anteriores={anteriores} pagos={pagos} gastos={gastos} propinas={propinas} onNuevoMovimiento={() => setModal({ tipo: 'movimiento' })} />
           )}
         </main>
       </div>
@@ -1543,14 +1606,19 @@ function Caja() {
 
       {modal?.tipo === 'nuevo' && (
         <ModalNuevoTrabajo servicios={servicios} descuentos={descuentos} onCerrar={() => setModal(null)}
-          onGuardado={(text) => { setModal(null); aviso(text); cargarDia() }} />
+          onGuardado={async (text, pasado) => {
+            aviso(text)
+            // Trabajo de un día anterior: se abre el cobro de inmediato, con esa fecha
+            setModal(pasado && Number(pasado.total) > 0 ? { tipo: 'cobro', trabajo: pasado, diaPago: pasado.fecha } : null)
+            cargarDia()
+          }} />
       )}
       {modal?.tipo === 'acciones' && trabajoActual && (
         <ModalAcciones trabajo={trabajoActual} pagos={todosPagos} propinas={propinas} servicios={servicios} descuentos={descuentos} onCambio={cargarDia} onLocal={aplicarLocal} onCerrar={() => setModal(null)}
           onCobrar={() => setModal({ tipo: 'cobro', trabajo: trabajoActual })} />
       )}
       {modal?.tipo === 'cobro' && trabajoActual && (
-        <ModalCobro trabajo={trabajoActual} pendiente={pendienteActual} onCerrar={() => setModal(null)}
+        <ModalCobro trabajo={trabajoActual} pendiente={pendienteActual} fechaInicial={modal.diaPago} onCerrar={() => setModal(null)}
           onListo={() => { setModal(null); aviso('Cobro registrado.'); cargarDia() }} />
       )}
       {modal?.tipo === 'movimiento' && (
