@@ -595,18 +595,15 @@ async function traerTodo(consulta) {
   return out
 }
 
-// Un día sale de la caja propia solo si ese mismo día se usó el link. Un trabajo ingresado después, con fecha
-// anterior, no "convierte" ese día: se suma a lo de Aquapp (sin repetir la patente).
-const usadoEseDia = (t) => Boolean(t.created_at) && hoyLocal(new Date(t.created_at)) === t.fecha
-function unirFuentes(aq, tr, marcas) {
-  const dias = new Set(marcas.filter(usadoEseDia).map(t => t.fecha))
-  const deAquapp = aq.filter(r => !dias.has(r.fecha))
-  const repetidos = new Set(deAquapp.map(r => `${r.fecha}|${normalizePatente(r.patente)}`))
-  return { deAquapp, deCaja: tr.filter(t => dias.has(t.fecha) || !repetidos.has(`${t.fecha}|${normalizePatente(t.patente)}`)) }
+// Un mismo día puede quedar repartido (una parte en Aquapp y otra en la caja propia): se suman las dos.
+// Si una patente aparece en ambas el mismo día, se cuenta solo la de la caja propia.
+function unirFuentes(aq, tr) {
+  const clave = (r) => `${r.fecha}|${normalizePatente(r.patente)}`
+  const enCaja = new Set(tr.map(clave))
+  return { deAquapp: aq.filter(r => !enCaja.has(clave(r))), deCaja: tr }
 }
 
 // Unifica Aquapp y la caja propia en filas { fecha, cliente, patente, servicio, vendido, cobrado }.
-// Cada día se toma de la caja propia si ese día se usó el link; si no (ej. fines de semana), de lo cargado desde Aquapp.
 async function cargarVentas(desde, hasta) {
   const filas = []
   const aq = await traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, servicios, monto, descuento, cobrado')
@@ -620,7 +617,7 @@ async function cargarVentas(desde, hasta) {
     const pg = await traerTodo(() => supabase.from('caja_pagos').select('id, trabajo_id, monto').eq('local_id', LOCAL_FONTOVA).gte('fecha', d2).order('id'))
     pg.forEach(p => { cob[p.trabajo_id] = (cob[p.trabajo_id] || 0) + Number(p.monto) })
   }
-  const { deAquapp, deCaja } = unirFuentes(aq, tr, tr)
+  const { deAquapp, deCaja } = unirFuentes(aq, tr)
   deAquapp.forEach(r => filas.push({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, servicio: r.servicios, vendido: Number(r.monto) - Number(r.descuento || 0), cobrado: Number(r.cobrado) }))
   deCaja.forEach(t => filas.push({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, servicio: (t.items || []).map(i => i.nombre).join(' | '), vendido: Number(t.total), cobrado: cob[t.id] || 0 }))
   return filas
@@ -682,7 +679,7 @@ function ResumenMes({ ym, cliente }) {
         <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Cobrado</p><p className="text-lg font-bold text-emerald-600">{fmt(cobrado)}</p></div>
         <div className="rounded-2xl bg-white/70 p-3"><p className="text-xs text-slate-500">Por cobrar</p><p className="text-lg font-bold text-amber-600">{fmt(Math.max(0, vendido - cobrado))}</p></div>
       </div>
-      <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {ym === CAJA_DESDE.slice(0, 7) ? `Los días que se usó este link salen de esta caja; los demás, de Aquapp.` : antesDeCaja ? 'Datos de Aquapp.' : ''}</p>
+      <p className="text-[11px] text-slate-400">Ventas = precio de los servicios menos descuentos. {antesDeCaja ? 'Datos de Aquapp.' : 'Suma lo registrado en este link y en Aquapp; una misma patente el mismo día se cuenta una sola vez.'}</p>
       <div className="space-y-1.5">
         {dias.length === 0 && <p className="text-sm text-slate-500 px-1">{cliente ? 'Sin servicios de este cliente en el mes.' : 'Sin datos en este mes.'}</p>}
         {dias.map(([fecha, fs]) => {
@@ -722,14 +719,13 @@ async function buscarHistorial(texto) {
   const norm = normalizePatente(q)
   const filtros = [`cliente.ilike.%${q}%`]
   if (norm.length >= 4) filtros.push(`patente.ilike.%${patronPatente(norm)}%`)
-  const [aq, tr, diasCaja] = await Promise.all([
+  const [aq, tr] = await Promise.all([
     traerTodo(() => supabase.from('trabajos_aquapp').select('id, fecha, cliente, patente, marca, modelo, servicios, monto, descuento, es_membresia')
       .eq('local_id', LOCAL_FONTOVA).or(filtros.join(',')).order('id')),
     traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, cliente, patente, marca, modelo, items, total, anulado, created_at')
       .eq('local_id', LOCAL_FONTOVA).eq('anulado', false).or(filtros.join(',')).order('created_at')),
-    traerTodo(() => supabase.from('caja_trabajos').select('id, fecha, created_at').eq('local_id', LOCAL_FONTOVA).eq('anulado', false).gte('fecha', CAJA_DESDE).order('id')),
   ])
-  const { deAquapp, deCaja } = unirFuentes(aq, tr, diasCaja)
+  const { deAquapp, deCaja } = unirFuentes(aq, tr)
   const filas = [
     ...deAquapp.map(r => ({ fecha: r.fecha, cliente: r.cliente, patente: r.patente, vehiculo: [r.marca, r.modelo].filter(Boolean).join(' '), servicio: r.servicios, monto: Number(r.monto) - Number(r.descuento || 0), membresia: r.es_membresia })),
     ...deCaja.map(t => ({ fecha: t.fecha, cliente: t.cliente, patente: t.patente, vehiculo: [t.marca, t.modelo].filter(Boolean).join(' '), servicio: (t.items || []).map(i => i.nombre).join(' | '), monto: Number(t.total), membresia: (t.items || []).some(i => i.es_membresia) })),
