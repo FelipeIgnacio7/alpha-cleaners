@@ -48,6 +48,18 @@ export function descuentoVigente(d, fecha = hoyLocal()) {
   return d.activo && (!d.vigente_hasta || d.vigente_hasta >= fecha)
 }
 
+// ---------- Un solo lavado por vehículo ----------
+// Full, Plus, por fuera, exterior y los usos de membresía son "el lavado" del vehículo: va uno u otro.
+// Los demás (motor, chasis, pick up, tapiz, ceras...) son adicionales y sí se pueden combinar.
+export const esLavado = (it) => /^(lavado (full|plus|por fuera|exterior)|membres)/i.test((it?.nombre_base || it?.nombre || '').trim())
+
+// Agrega un servicio al trabajo. Si es un lavado, reemplaza al que ya estaba (el mismo no se agrega dos veces).
+export function agregarItem(items, nuevo) {
+  if (!esLavado(nuevo)) return [...items, nuevo]
+  if (items.some(i => esLavado(i) && i.servicio_id === nuevo.servicio_id)) return items
+  return [...items.filter(i => !esLavado(i)), nuevo]
+}
+
 // items: [{ servicio_id, nombre, precio }]. Un descuento con `solo_servicio` aplica solo a ese servicio.
 export function calcularTrabajo(items, descuento) {
   const subtotal = items.reduce((a, it) => a + (Number(it.precio) || 0), 0)
